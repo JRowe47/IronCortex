@@ -1,5 +1,5 @@
 """
-CORTEX-IRON: A reasoning-native, always-on RWKV+Diffusion cortex with Iron RoPE
+IRON-CORTEX: A reasoning-native, always-on RWKV+Diffusion cortex with Iron RoPE
 
 This single-file reference implements the end-to-end architecture you specified:
 - Sparse modular **regions** arranged on a hex-like graph
