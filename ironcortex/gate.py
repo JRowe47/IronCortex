@@ -3,9 +3,7 @@ from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-from .utils import nms_topk, context_logprob
+from .utils import nms_topk
 from .iron_rope import make_freq_bank, relative_fourier_bias
 
 # 4) Gate (compute allocation) & Router (message passing with Fourier bias)
@@ -116,7 +114,9 @@ class Router(nn.Module):
         # Fourier relative bias over region coordinates (2-D axial)
         self.fb_alpha = 0.1
         m_reg = 8
-        self.W_reg = make_freq_bank(m_reg, 2, kind="gaussian", sigma=1.0)
+        self.register_buffer(
+            "W_reg", make_freq_bank(m_reg, 2, kind="gaussian", sigma=1.0)
+        )
         self.beta_cos = nn.Parameter(torch.zeros(m_reg))
         self.beta_sin = nn.Parameter(torch.zeros(m_reg))
         self.fb_scale = 1.0 / math.sqrt(m_reg)
@@ -131,7 +131,6 @@ class Router(nn.Module):
         """
         device = H.device
         M = torch.zeros(self.R, self.d, device=device)
-        B = 1  # per-sequence call
         # Prepare coordinate tensors for bias
         P = reg_coords.to(H.dtype).to(device).unsqueeze(0)  # [1,R,2]
         for r in range(self.R):
