@@ -7,6 +7,7 @@ from .iron_rope import rope_rotate_pairs, make_freq_bank
 # 5) RWKV Region Cell (with Δt skip + time rotation on v)
 # ==========================================================
 
+
 class RWKVRegionCell(nn.Module):
     """RWKV-like region processor with per-channel decay and Δt skip handling.
 
@@ -17,6 +18,7 @@ class RWKVRegionCell(nn.Module):
     We add a small Iron time rotation (inner-step) to **v** only to encode
     diffusion time without breaking w=exp(k) positivity.
     """
+
     def __init__(self, d: int, m_time_pairs: int = 16):
         super().__init__()
         self.d = d
@@ -51,6 +53,11 @@ class RWKVRegionCell(nn.Module):
     def skip(self):
         self.dt += 1
 
+    def detach_state(self):
+        """Detach fast-weight buffers to prevent graph ties across steps."""
+        self.state_num = self.state_num.detach()
+        self.state_den = self.state_den.detach()
+
     def step(self, x_in: torch.Tensor, step_pos_scalar: float) -> torch.Tensor:
         """One RWKV region update.
 
@@ -59,7 +66,7 @@ class RWKVRegionCell(nn.Module):
         x = self.norm(x_in)
         self.fast_forward()
         r = torch.sigmoid(self.r_lin(x))
-        k = self.k_lin(x)                    # keep unrotated (exp(k) >= 0)
+        k = self.k_lin(x)  # keep unrotated (exp(k) >= 0)
         v = self.v_lin(x)
 
         # Iron time rotation on v (encode inner-step time)
@@ -76,5 +83,3 @@ class RWKVRegionCell(nn.Module):
         h = x + self.o_lin(y)
         h = KWTA(h, k=max(1, self.d // 8))
         return h
-
-

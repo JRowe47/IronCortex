@@ -9,6 +9,15 @@ from .model import CortexReasoner
 from .corruptions import corrupt
 from .utils import goodness
 
+
+def _detach_model_state(model: CortexReasoner) -> None:
+    """Detach stateful tensors to avoid cross-step autograd graphs."""
+    if hasattr(model, "work"):
+        model.work.slots = model.work.slots.detach()
+    for region in getattr(model, "regions", []):
+        region.detach_state()
+
+
 # 8) FF Training Step (basic, single-sequence version)
 # ==========================================================
 
@@ -39,9 +48,7 @@ def train_step(
     Returns metrics dict with component losses.
     """
     model.train()
-    # Detach workspace scratchpad so previous graphs don't leak between steps
-    if hasattr(model, "work"):
-        model.work.slots = model.work.slots.detach()
+    _detach_model_state(model)
 
     B, T = clean_tokens.shape
     total_ff = 0.0
@@ -63,7 +70,7 @@ def train_step(
         )
 
         # --- Positive stream ---
-        model.work.slots = model.work.slots.detach()
+        _detach_model_state(model)
         H_prev, reg_mask_prev = model.zeros_state(device)
         focus_zero = torch.zeros_like(focus_map, dtype=torch.bool)
         H_pos, reg_mask_p, logits_pos, traces_pos = model.reasoning_loop(
@@ -71,7 +78,7 @@ def train_step(
         )
 
         # --- Negative stream ---
-        model.work.slots = model.work.slots.detach()
+        _detach_model_state(model)
         H_prev, reg_mask_prev = model.zeros_state(device)
         H_neg, reg_mask_n, logits_neg, traces_neg = model.reasoning_loop(
             x_neg, model.cfg.K_inner, focus_map, reg_mask_prev, H_prev
