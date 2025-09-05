@@ -1,5 +1,5 @@
 import math
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -11,6 +11,7 @@ from .iron_rope import make_freq_bank, relative_fourier_bias
 # 4) Gate (compute allocation) & Router (message passing with Fourier bias)
 # ==========================================================
 
+
 class Gate(nn.Module):
     """Discrete compute allocator over regions.
 
@@ -18,7 +19,10 @@ class Gate(nn.Module):
     - `homeo[r]` implements firing-rate homeostasis
     - scores combine content (|H|), usefulness, focus proximity, homeostasis, and critic value bias
     """
-    def __init__(self, R: int, neighbor_indices: List[List[int]], io_idxs: Dict[str, int]):
+
+    def __init__(
+        self, R: int, neighbor_indices: List[List[int]], io_idxs: Dict[str, int]
+    ):
         super().__init__()
         self.R = R
         self.neighbors = neighbor_indices
@@ -35,33 +39,44 @@ class Gate(nn.Module):
 
     def overlap_with_focus(self, focus_mask: Optional[torch.Tensor]) -> torch.Tensor:
         """Crude focus proximity: boost sensor/motor when any focus exists."""
-        if focus_mask is None or (focus_mask.numel() > 0 and not bool(focus_mask.any())):
+        if focus_mask is None or (
+            focus_mask.numel() > 0 and not bool(focus_mask.any())
+        ):
             s = torch.zeros(self.R, device=self.gain_ema.device)
         else:
             s = torch.zeros(self.R, device=self.gain_ema.device)
-            s[self.io_idxs['sensor']] = 1.0
-            s[self.io_idxs['motor']] = 1.0
+            s[self.io_idxs["sensor"]] = 1.0
+            s[self.io_idxs["motor"]] = 1.0
         return s
 
-    def score_regions(self, H_hint: torch.Tensor, focus_mask: Optional[torch.Tensor], u_mean: float) -> torch.Tensor:
+    def score_regions(
+        self, H_hint: torch.Tensor, focus_mask: Optional[torch.Tensor], u_mean: float
+    ) -> torch.Tensor:
         """H_hint:[R,d] -> scores:[R]"""
-        content = H_hint.abs().mean(dim=-1)                    # [R]
-        focus_boost = self.overlap_with_focus(focus_mask)      # [R]
-        scores = (self.w1 * content
-                  + self.w2 * self.gain_ema
-                  + self.w3 * focus_boost
-                  - self.w4 * self.homeo
-                  + self.w5 * float(self.value_bias))
+        content = H_hint.abs().mean(dim=-1)  # [R]
+        focus_boost = self.overlap_with_focus(focus_mask)  # [R]
+        scores = (
+            self.w1 * content
+            + self.w2 * self.gain_ema
+            + self.w3 * focus_boost
+            - self.w4 * self.homeo
+            + self.w5 * float(self.value_bias)
+        )
         return scores
 
-    def select_k(self, scores: torch.Tensor, k_active: int, burst_extra_k: int,
-                 io_force_on: bool = True) -> torch.Tensor:
+    def select_k(
+        self,
+        scores: torch.Tensor,
+        k_active: int,
+        burst_extra_k: int,
+        io_force_on: bool = True,
+    ) -> torch.Tensor:
         """Neighbor-suppressed top-k + force sensor/motor on."""
         k_total = max(0, k_active + burst_extra_k)
         mask = torch.zeros(self.R, dtype=torch.bool, device=scores.device)
         forced = []
         if io_force_on:
-            forced = [self.io_idxs['sensor'], self.io_idxs['motor']]
+            forced = [self.io_idxs["sensor"], self.io_idxs["motor"]]
             mask[forced] = True
             k_total = max(0, k_total - len(forced))
         idx = nms_topk(scores, k_total, self.neighbors)
@@ -71,7 +86,9 @@ class Gate(nn.Module):
     def update_gain(self, r: int, goodness_gain: float, beta: float = 0.9):
         self.gain_ema[r] = beta * self.gain_ema[r] + (1.0 - beta) * float(goodness_gain)
 
-    def update_homeo(self, reg_mask: torch.Tensor, eta: float = 1e-3, target: float = 0.1):
+    def update_homeo(
+        self, reg_mask: torch.Tensor, eta: float = 1e-3, target: float = 0.1
+    ):
         """Homeostatic drift toward target firing rate."""
         self.homeo += eta * (reg_mask.float() - target)
 
@@ -82,6 +99,7 @@ class Router(nn.Module):
     Messages are constrained to neighbors (short paths). A small relative Fourier bias
     in the transform helps the router "feel" the hex geometry.
     """
+
     def __init__(self, neighbor_indices: List[List[int]], d: int, R: int):
         super().__init__()
         self.R = R
@@ -103,7 +121,9 @@ class Router(nn.Module):
         self.beta_sin = nn.Parameter(torch.zeros(m_reg))
         self.fb_scale = 1.0 / math.sqrt(m_reg)
 
-    def messages(self, H: torch.Tensor, reg_mask_prev: torch.Tensor, reg_coords: torch.Tensor) -> torch.Tensor:
+    def messages(
+        self, H: torch.Tensor, reg_mask_prev: torch.Tensor, reg_coords: torch.Tensor
+    ) -> torch.Tensor:
         """Aggregate messages from previously active neighbors.
 
         H: [R,d], reg_mask_prev: [R] bool, reg_coords: [R,2]
@@ -121,11 +141,14 @@ class Router(nn.Module):
                     continue
                 msg = self.W_edge[f"{s}->{r}"](H[s])
                 # Relative Fourier bias b(Δcoords) (scalar per edge)
-                b = relative_fourier_bias(P[:, r:r+1, :], P[:, s:s+1, :],
-                                          self.W_reg, self.beta_cos, self.beta_sin,
-                                          self.fb_scale)[0, 0, 0, 0]
+                b = relative_fourier_bias(
+                    P[:, r : r + 1, :],
+                    P[:, s : s + 1, :],
+                    self.W_reg,
+                    self.beta_cos,
+                    self.beta_sin,
+                    self.fb_scale,
+                )[0, 0, 0, 0]
                 acc = acc + (1.0 + self.fb_alpha * b) * msg
             M[r] = acc
         return M
-
-
