@@ -32,7 +32,9 @@ class RWKVRegionCell(nn.Module):
         # Iron time rotation pairs for v
         self.m_time = max(0, min(d // 8 // 2, m_time_pairs))
         if self.m_time > 0:
-            self.W_time = make_freq_bank(self.m_time, 1, kind="log", base=10000.0)
+            self.register_buffer(
+                "W_time", make_freq_bank(self.m_time, 1, kind="log", base=10000.0)
+            )
 
     def decay_vec(self) -> torch.Tensor:
         return torch.sigmoid(self.decay_param).pow(2.0)  # (0,1)
