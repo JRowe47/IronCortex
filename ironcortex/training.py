@@ -45,7 +45,7 @@ def train_step(
     sequences. It loops per sample (B small), running the full inner reasoning loop
     for positive and negative streams, then aggregates losses.
 
-    Returns metrics dict with component losses.
+    Returns metrics dict with component losses and an approximate cross entropy.
     """
     model.train()
     _detach_model_state(model)
@@ -56,6 +56,7 @@ def train_step(
     total_denoise = 0.0
     total_critic = 0.0
     total_verify = 0.0
+    total_ce = 0.0
 
     optimizer.zero_grad()
     total_loss_val = 0.0
@@ -76,6 +77,7 @@ def train_step(
         H_pos, reg_mask_p, logits_pos, traces_pos = model.reasoning_loop(
             tokens, model.cfg.K_inner, focus_zero, reg_mask_prev, H_prev
         )
+        ce_loss = F.cross_entropy(logits_pos.unsqueeze(0), tokens[-1].unsqueeze(0))
 
         # --- Negative stream ---
         _detach_model_state(model)
@@ -185,6 +187,7 @@ def train_step(
         total_denoise += float(denoise_loss.detach().item())
         total_critic += float(critic_loss.detach().item())
         total_verify += float(verifier_loss.detach().item())
+        total_ce += float(ce_loss.detach().item())
 
         # Homeostasis update (drifts slowly)
         model.gate.update_homeo(reg_mask_n)
@@ -197,5 +200,6 @@ def train_step(
         "denoise": total_denoise / B,
         "critic": total_critic / B,
         "verify": total_verify / B,
+        "ce": total_ce / B,
         "total": total_loss_val / B,
     }
