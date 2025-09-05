@@ -42,7 +42,7 @@ def main() -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     lamb = LossWeights()
 
-    header = "step,ff,rtd,denoise,critic,verify,total,gain_mean,tau_mean"
+    header = "step,ff,rtd,denoise,critic,verify,ce,total,gain_mean,tau_mean"
     print(header)
     for step, batch in enumerate(loader, 1):
         batch = batch.to(device)
@@ -51,8 +51,8 @@ def main() -> None:
         tau_mean = sum(r.tau for r in model.reg_ff) / model.R
         line = (
             f"{step},{metrics['ff']:.4f},{metrics['rtd']:.4f},{metrics['denoise']:.4f},"
-            f"{metrics['critic']:.4f},{metrics['verify']:.4f},{metrics['total']:.4f},"
-            f"{gain_mean:.4f},{tau_mean:.4f}"
+            f"{metrics['critic']:.4f},{metrics['verify']:.4f},{metrics['ce']:.4f},"
+            f"{metrics['total']:.4f},{gain_mean:.4f},{tau_mean:.4f}"
         )
         print(line)
         if step >= 50:
