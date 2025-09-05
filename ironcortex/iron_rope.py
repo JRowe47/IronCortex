@@ -1,11 +1,11 @@
 import math
-from typing import List, Optional, Tuple
+from typing import Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import pad_batch, masked_mean
+from .utils import pad_batch, masked_mean, extract_spans
 
 # 1) Iron RoPE: Fourier banks, rotary rotation, relative bias
 # ==========================================================
@@ -80,7 +80,6 @@ def relative_fourier_bias(
       [B,1,Tq,Tk] if shared across heads, else [B,H,Tq,Tk]
     """
     B, Tq, d = p_q.shape
-    Tk = p_k.shape[1]
     Δ = p_q.unsqueeze(2) - p_k.unsqueeze(1)  # [B,Tq,Tk,d]
     S = torch.einsum("bqkd,md->bqkm", Δ, W)  # [B,Tq,Tk,m]
     c, s = torch.cos(S), torch.sin(S)
@@ -184,7 +183,7 @@ class IronRoPESelfAttention(nn.Module):
         """x:[B,T,C]; coords:[B,T,d_coord] or None; update_mask/context_mask:[B,T]"""
         B, T, C = x.shape
         assert T <= self.block_size
-        device, dtype = x.device, x.dtype
+        device = x.device
 
         if coords is None:
             coords = (
@@ -280,9 +279,9 @@ class LocalTokenMixer(nn.Module):
             anchors += [(i, 0) for i in centers]  # kind 0
         # span boundary anchors around focused spans
         if focus_mask is not None and focus_mask.any():
-            for l, r in extract_spans(focus_mask):
-                anchors.append((l, 1))
-                anchors.append((max(l, r - 1), 2))
+            for start, end in extract_spans(focus_mask):
+                anchors.append((start, 1))
+                anchors.append((max(start, end - 1), 2))
         return anchors
 
     def forward(
