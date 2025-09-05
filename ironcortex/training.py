@@ -12,6 +12,7 @@ from .utils import goodness
 # 8) FF Training Step (basic, single-sequence version)
 # ==========================================================
 
+
 @dataclass
 class LossWeights:
     ff: float = 1.0
@@ -22,11 +23,13 @@ class LossWeights:
     facet: float = 1e-3
 
 
-def train_step(model: CortexReasoner,
-               optimizer: torch.optim.Optimizer,
-               clean_tokens: torch.Tensor,  # [B,T] Long
-               λ: LossWeights,
-               device: torch.device) -> Dict[str, float]:
+def train_step(
+    model: CortexReasoner,
+    optimizer: torch.optim.Optimizer,
+    clean_tokens: torch.Tensor,  # [B,T] Long
+    λ: LossWeights,
+    device: torch.device,
+) -> Dict[str, float]:
     """One training step mixing FF goodness, RTD, denoising, and tiny auxiliaries.
 
     NOTE: For clarity, this is a *single-step* trainer over a batch of independent
@@ -36,6 +39,10 @@ def train_step(model: CortexReasoner,
     Returns metrics dict with component losses.
     """
     model.train()
+    # Detach workspace scratchpad so previous graphs don't leak between steps
+    if hasattr(model, "work"):
+        model.work.slots = model.work.slots.detach()
+
     B, T = clean_tokens.shape
     total_ff = 0.0
     total_rtd = 0.0
@@ -50,19 +57,25 @@ def train_step(model: CortexReasoner,
         tokens = clean_tokens[b]
 
         # Sample corruption mode
-        mode = random.choices(['RTD', 'SPAN', 'BLOCK'], weights=[0.5, 0.3, 0.2])[0]
-        x_neg, is_real, focus_map, denoise_targets, denoise_mask = corrupt(tokens, model.V, mode)
+        mode = random.choices(["RTD", "SPAN", "BLOCK"], weights=[0.5, 0.3, 0.2])[0]
+        x_neg, is_real, focus_map, denoise_targets, denoise_mask = corrupt(
+            tokens, model.V, mode
+        )
 
         # --- Positive stream ---
+        model.work.slots = model.work.slots.detach()
         H_prev, reg_mask_prev = model.zeros_state(device)
         focus_zero = torch.zeros_like(focus_map, dtype=torch.bool)
-        H_pos, reg_mask_p, logits_pos, traces_pos = model.reasoning_loop(tokens, model.cfg.K_inner,
-                                                                         focus_zero, reg_mask_prev, H_prev)
+        H_pos, reg_mask_p, logits_pos, traces_pos = model.reasoning_loop(
+            tokens, model.cfg.K_inner, focus_zero, reg_mask_prev, H_prev
+        )
 
         # --- Negative stream ---
+        model.work.slots = model.work.slots.detach()
         H_prev, reg_mask_prev = model.zeros_state(device)
-        H_neg, reg_mask_n, logits_neg, traces_neg = model.reasoning_loop(x_neg, model.cfg.K_inner,
-                                                                         focus_map, reg_mask_prev, H_prev)
+        H_neg, reg_mask_n, logits_neg, traces_neg = model.reasoning_loop(
+            x_neg, model.cfg.K_inner, focus_map, reg_mask_prev, H_prev
+        )
 
         # -------- FF per-region losses --------
         ff_loss = torch.tensor(0.0, device=device)
@@ -81,8 +94,16 @@ def train_step(model: CortexReasoner,
             hpos = Hpos_stack[:, r, :] if Hpos_stack.numel() > 0 else None
             hneg = Hneg_stack[:, r, :] if Hneg_stack.numel() > 0 else None
 
-            gpos = goodness(hpos) if hpos is not None and hpos.numel() > 0 else torch.tensor(0.0, device=device)
-            gneg = goodness(hneg) if hneg is not None and hneg.numel() > 0 else torch.tensor(0.0, device=device)
+            gpos = (
+                goodness(hpos)
+                if hpos is not None and hpos.numel() > 0
+                else torch.tensor(0.0, device=device)
+            )
+            gneg = (
+                goodness(hneg)
+                if hneg is not None and hneg.numel() > 0
+                else torch.tensor(0.0, device=device)
+            )
             τ = model.reg_ff[r].tau
             L_pos = F.softplus(-(gpos - τ))
             L_neg = F.softplus(+(gneg - τ))
@@ -94,10 +115,14 @@ def train_step(model: CortexReasoner,
             model.gate.update_gain(r, gain)
 
         # -------- RTD loss (on negative stream motor state) --------
-        motor_neg = H_neg[model.io_idxs['motor']]  # [d]
+        motor_neg = H_neg[model.io_idxs["motor"]]  # [d]
         rtd_logits = model.rtdd(motor_neg).unsqueeze(0)  # [1,2]
         # Build a simple target: if any replacement happened -> 0 else 1 (crude)
-        rtd_target = torch.tensor([[1, 0]], device=device) if is_real.all() else torch.tensor([[0, 1]], device=device)
+        rtd_target = (
+            torch.tensor([[1, 0]], device=device)
+            if is_real.all()
+            else torch.tensor([[0, 1]], device=device)
+        )
         rtd_loss = F.cross_entropy(rtd_logits, rtd_target.argmax(dim=-1))
 
         # -------- Denoising loss (mask-predict) on masked positions --------
@@ -107,7 +132,10 @@ def train_step(model: CortexReasoner,
             first_idx = int(denoise_mask.nonzero(as_tuple=False)[0].item())
             target_id = denoise_targets[first_idx].unsqueeze(0)  # [1]
             ce = F.cross_entropy(token_logits.unsqueeze(0), target_id)
-            denoise_loss = ce + aux.get('facet_balance', torch.tensor(0.0, device=device)) * λ.facet
+            denoise_loss = (
+                ce
+                + aux.get("facet_balance", torch.tensor(0.0, device=device)) * λ.facet
+            )
         else:
             denoise_loss = torch.tensor(0.0, device=device)
 
@@ -115,9 +143,13 @@ def train_step(model: CortexReasoner,
         realized_delta_g = (goodness(H_pos) - goodness(H_neg)).detach()
         # ws_state (neg stream) proxy: mean over final active
         active_n = reg_mask_n.nonzero(as_tuple=False).squeeze(-1)
-        ws_state_neg = H_neg[active_n].mean(dim=0) if active_n.numel() > 0 else torch.zeros(model.d, device=device)
+        ws_state_neg = (
+            H_neg[active_n].mean(dim=0)
+            if active_n.numel() > 0
+            else torch.zeros(model.d, device=device)
+        )
         # Use plan->critic on that
-        p, g = model.plan(ws_state_neg, H_neg[model.io_idxs['motor']])
+        p, g = model.plan(ws_state_neg, H_neg[model.io_idxs["motor"]])
         v_hat = model.critic(ws_state_neg, g)
         critic_loss = F.mse_loss(v_hat, realized_delta_g)
 
@@ -128,11 +160,13 @@ def train_step(model: CortexReasoner,
         verifier_loss = F.binary_cross_entropy(ver_score, ver_target)
 
         # -------- Total --------
-        total = (λ.ff * ff_loss
-                 + λ.rtd * rtd_loss
-                 + λ.denoise * denoise_loss
-                 + λ.critic * critic_loss
-                 + λ.verify * verifier_loss)
+        total = (
+            λ.ff * ff_loss
+            + λ.rtd * rtd_loss
+            + λ.denoise * denoise_loss
+            + λ.critic * critic_loss
+            + λ.verify * verifier_loss
+        )
 
         total_loss = total_loss + total
 
@@ -156,7 +190,5 @@ def train_step(model: CortexReasoner,
         "denoise": total_denoise / B,
         "critic": total_critic / B,
         "verify": total_verify / B,
-        "total": float(total_loss.detach().item())
+        "total": float(total_loss.detach().item()),
     }
-
-
