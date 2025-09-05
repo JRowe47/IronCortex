@@ -1,0 +1,131 @@
+import math
+from typing import Dict, List
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from .utils import nms_topk, context_logprob
+from .iron_rope import make_freq_bank, relative_fourier_bias
+
+# 4) Gate (compute allocation) & Router (message passing with Fourier bias)
+# ==========================================================
+
+class Gate(nn.Module):
+    """Discrete compute allocator over regions.
+
+    - `gain_ema[r]` tracks usefulness (Δgoodness EMA)
+    - `homeo[r]` implements firing-rate homeostasis
+    - scores combine content (|H|), usefulness, focus proximity, homeostasis, and critic value bias
+    """
+    def __init__(self, R: int, neighbor_indices: List[List[int]], io_idxs: Dict[str, int]):
+        super().__init__()
+        self.R = R
+        self.neighbors = neighbor_indices
+        self.io_idxs = io_idxs
+        self.register_buffer("gain_ema", torch.zeros(R))
+        self.register_buffer("homeo", torch.zeros(R))
+        # hyper-weights (safe small defaults)
+        self.w1 = 1.0
+        self.w2 = 0.3
+        self.w3 = 0.5
+        self.w4 = 0.2
+        self.w5 = 0.5
+        self.value_bias = 0.0  # set externally each step
+
+    def overlap_with_focus(self, focus_mask: Optional[torch.Tensor]) -> torch.Tensor:
+        """Crude focus proximity: boost sensor/motor when any focus exists."""
+        if focus_mask is None or (focus_mask.numel() > 0 and not bool(focus_mask.any())):
+            s = torch.zeros(self.R, device=self.gain_ema.device)
+        else:
+            s = torch.zeros(self.R, device=self.gain_ema.device)
+            s[self.io_idxs['sensor']] = 1.0
+            s[self.io_idxs['motor']] = 1.0
+        return s
+
+    def score_regions(self, H_hint: torch.Tensor, focus_mask: Optional[torch.Tensor], u_mean: float) -> torch.Tensor:
+        """H_hint:[R,d] -> scores:[R]"""
+        content = H_hint.abs().mean(dim=-1)                    # [R]
+        focus_boost = self.overlap_with_focus(focus_mask)      # [R]
+        scores = (self.w1 * content
+                  + self.w2 * self.gain_ema
+                  + self.w3 * focus_boost
+                  - self.w4 * self.homeo
+                  + self.w5 * float(self.value_bias))
+        return scores
+
+    def select_k(self, scores: torch.Tensor, k_active: int, burst_extra_k: int,
+                 io_force_on: bool = True) -> torch.Tensor:
+        """Neighbor-suppressed top-k + force sensor/motor on."""
+        k_total = max(0, k_active + burst_extra_k)
+        mask = torch.zeros(self.R, dtype=torch.bool, device=scores.device)
+        forced = []
+        if io_force_on:
+            forced = [self.io_idxs['sensor'], self.io_idxs['motor']]
+            mask[forced] = True
+            k_total = max(0, k_total - len(forced))
+        idx = nms_topk(scores, k_total, self.neighbors)
+        mask[idx] = True
+        return mask
+
+    def update_gain(self, r: int, goodness_gain: float, beta: float = 0.9):
+        self.gain_ema[r] = beta * self.gain_ema[r] + (1.0 - beta) * float(goodness_gain)
+
+    def update_homeo(self, reg_mask: torch.Tensor, eta: float = 1e-3, target: float = 0.1):
+        """Homeostatic drift toward target firing rate."""
+        self.homeo += eta * (reg_mask.float() - target)
+
+
+class Router(nn.Module):
+    """Hex-graph message router with optional learned edge transforms and Fourier relative bias.
+
+    Messages are constrained to neighbors (short paths). A small relative Fourier bias
+    in the transform helps the router "feel" the hex geometry.
+    """
+    def __init__(self, neighbor_indices: List[List[int]], d: int, R: int):
+        super().__init__()
+        self.R = R
+        self.d = d
+        self.neighbors = neighbor_indices
+
+        # Edge transforms
+        edges = {}
+        for r in range(R):
+            for s in self.neighbors[r]:
+                edges[f"{s}->{r}"] = nn.Linear(d, d, bias=False)
+        self.W_edge = nn.ModuleDict(edges)
+
+        # Fourier relative bias over region coordinates (2-D axial)
+        self.fb_alpha = 0.1
+        m_reg = 8
+        self.W_reg = make_freq_bank(m_reg, 2, kind="gaussian", sigma=1.0)
+        self.beta_cos = nn.Parameter(torch.zeros(m_reg))
+        self.beta_sin = nn.Parameter(torch.zeros(m_reg))
+        self.fb_scale = 1.0 / math.sqrt(m_reg)
+
+    def messages(self, H: torch.Tensor, reg_mask_prev: torch.Tensor, reg_coords: torch.Tensor) -> torch.Tensor:
+        """Aggregate messages from previously active neighbors.
+
+        H: [R,d], reg_mask_prev: [R] bool, reg_coords: [R,2]
+        Returns M: [R,d]
+        """
+        device = H.device
+        M = torch.zeros(self.R, self.d, device=device)
+        B = 1  # per-sequence call
+        # Prepare coordinate tensors for bias
+        P = reg_coords.to(H.dtype).to(device).unsqueeze(0)  # [1,R,2]
+        for r in range(self.R):
+            acc = torch.zeros(self.d, device=device)
+            for s in self.neighbors[r]:
+                if not bool(reg_mask_prev[s]):
+                    continue
+                msg = self.W_edge[f"{s}->{r}"](H[s])
+                # Relative Fourier bias b(Δcoords) (scalar per edge)
+                b = relative_fourier_bias(P[:, r:r+1, :], P[:, s:s+1, :],
+                                          self.W_reg, self.beta_cos, self.beta_sin,
+                                          self.fb_scale)[0, 0, 0, 0]
+                acc = acc + (1.0 + self.fb_alpha * b) * msg
+            M[r] = acc
+        return M
+
+
