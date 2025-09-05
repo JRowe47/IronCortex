@@ -51,7 +51,7 @@ def train_step(
     total_verify = 0.0
 
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0, device=device)
+    total_loss_val = 0.0
 
     for b in range(B):
         tokens = clean_tokens[b]
@@ -168,7 +168,9 @@ def train_step(
             + λ.verify * verifier_loss
         )
 
-        total_loss = total_loss + total
+        # Backprop immediately to avoid building large graphs and double backward errors
+        total.backward()
+        total_loss_val += float(total.detach().item())
 
         # Metrics (detach)
         total_ff += float(ff_loss.detach().item())
@@ -180,8 +182,6 @@ def train_step(
         # Homeostasis update (drifts slowly)
         model.gate.update_homeo(reg_mask_n)
 
-    # Backprop once per batch
-    total_loss.backward()
     optimizer.step()
 
     return {
@@ -190,5 +190,5 @@ def train_step(
         "denoise": total_denoise / B,
         "critic": total_critic / B,
         "verify": total_verify / B,
-        "total": float(total_loss.detach().item()),
+        "total": total_loss_val / B,
     }
