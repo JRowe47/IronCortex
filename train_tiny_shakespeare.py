@@ -13,7 +13,11 @@ from ironcortex import (
 
 
 def build_model(device: torch.device) -> CortexReasoner:
-    cfg = CortexConfig(R=32, d=256, V=256, K_inner=8, B_br=2, k_active=8, max_T=512)
+    # The wiring helpers assume the region count forms a perfect square so that
+    # regions can be arranged on a 2D grid. Using a non-square value (e.g. 32)
+    # caused `hex_neighbors_grid` to raise an assertion error. Set ``R`` to a
+    # square number (36 = 6x6 grid) to make the demo run.
+    cfg = CortexConfig(R=36, d=256, V=256, K_inner=8, B_br=2, k_active=8, max_T=512)
     side = int(cfg.R**0.5)
     neighbors = hex_neighbors_grid(cfg.R, side)
     reg_coords = hex_axial_coords_from_grid(cfg.R, side)
