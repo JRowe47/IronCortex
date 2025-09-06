@@ -60,11 +60,8 @@ def diffusion_generate(
             + (diff_cfg.noise_start - diff_cfg.noise_end) * step / diff_cfg.steps
         )
         mask = torch.rand(T_total, device=device) < noise_p
-        noisy = tokens.clone()
-        if mask.any():
-            noisy[mask] = torch.randint(
-                0, model.V - 1, size=(int(mask.sum()),), device=device
-            )
+        random_tokens = torch.randint(0, model.V - 1, (T_total,), device=device)
+        noisy = torch.where(mask, random_tokens, tokens)
         focus_map = torch.ones(T_total, dtype=torch.bool, device=device)
         H_prev, reg_mask_prev, logits, traces = model.reasoning_loop(
             noisy, model.cfg.K_inner, focus_map, reg_mask_prev, H_prev
