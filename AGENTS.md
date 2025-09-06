@@ -14,14 +14,14 @@ This file provides guidance to OpenAI Codex when working with code in this repos
 - CORE ENGINEERING PRINCIPLES (lines 130-188)
 - APPLYING THESE PRINCIPLES (lines 189-197)
 - UPDATING THIS DOCUMENT (lines 198-214)
-- PROJECT-SPECIFIC GUIDANCE (lines 216-292)
+- PROJECT-SPECIFIC GUIDANCE (lines 216-293)
   - Project Overview (lines 218-224)
   - Project Status (lines 225-229)
   - Architecture (lines 230-249)
   - Prompts and Tools (lines 250-254)
   - Common Tasks (lines 255-274)
   - Testing Commands (lines 275-284)
-  - Next Development Steps (lines 286-292)
+    - Next Development Steps (lines 286-293)
 
 ## IMPORTANT: READ THIS ENTIRE FILE
 
@@ -30,7 +30,7 @@ This file provides guidance to OpenAI Codex when working with code in this repos
 - Core engineering principles for strategic decisions (lines 130-188)
 - Applying these principles (lines 189-197)
 - Updating this document (lines 198-214)
-- Project-specific guidance (lines 216-292)
+- Project-specific guidance (lines 216-293)
 
 **CRITICAL: When updating AGENTS.md, you MUST update these line numbers!**
 - After ANY edit, recalculate the line ranges for each section
@@ -290,3 +290,4 @@ ruff .         # static analysis
 3. Strengthen verifier targets with domain-specific constraints.
 4. Investigate strict forward-forward training by detaching cross-time paths.
 5. Expand tests to cover training stability, generation quality, and wiring utilities.
+6. Begin exploring text generation using a diffusion paradigm and other non-standard model features.
