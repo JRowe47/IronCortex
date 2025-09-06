@@ -2,6 +2,10 @@ from .config import CortexConfig as CortexConfig
 from .model import CortexReasoner as CortexReasoner
 from .training import LossWeights as LossWeights, train_step as train_step
 from .generation import generate as generate
+from .diffusion import (
+    DiffusionConfig as DiffusionConfig,
+    diffusion_generate as diffusion_generate,
+)
 from .wiring import (
     hex_neighbors_grid as hex_neighbors_grid,
     hex_axial_coords_from_grid as hex_axial_coords_from_grid,

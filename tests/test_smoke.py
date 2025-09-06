@@ -1,15 +1,18 @@
 import random
+
 import torch
 import pytest
 
 from ironcortex import (
     CortexConfig,
     CortexReasoner,
+    DiffusionConfig,
     LossWeights,
-    train_step,
+    diffusion_generate,
     generate,
-    hex_neighbors_grid,
     hex_axial_coords_from_grid,
+    hex_neighbors_grid,
+    train_step,
 )
 
 
@@ -32,6 +35,10 @@ def test_smoke():
     prompt = torch.randint(low=0, high=cfg.V - 1, size=(4,), device=device)
     out = generate(model, prompt, T_total=8, max_outer_iters=2, conf_threshold=0.8)
     assert out.shape[0] == 8
+    diff_out = diffusion_generate(
+        model, prompt, T_total=8, diff_cfg=DiffusionConfig(steps=2)
+    )
+    assert diff_out.shape[0] == 8
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
