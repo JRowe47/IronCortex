@@ -179,6 +179,7 @@ class IronRoPESelfAttention(nn.Module):
         coords: Optional[torch.Tensor] = None,
         update_mask: Optional[torch.Tensor] = None,
         context_mask: Optional[torch.Tensor] = None,
+        dropout: bool = True,
     ) -> torch.Tensor:
         """x:[B,T,C]; coords:[B,T,d_coord] or None; update_mask/context_mask:[B,T]"""
         B, T, C = x.shape
@@ -224,14 +225,17 @@ class IronRoPESelfAttention(nn.Module):
             cm = context_mask[:, None, None, :].to(torch.bool)  # [B,1,1,T]
             att = att.masked_fill(~cm, float("-inf"))
 
-        # Softmax and dropout
+        # Softmax and (optional) dropout
         att = F.softmax(att, dim=-1)
-        att = self.adrop(att)
+        if dropout:
+            att = self.adrop(att)
 
         # Weighted sum
         y = att @ v  # [B,H,T,hd]
         y = y.transpose(1, 2).contiguous().view(B, T, C)
-        y = self.rdrop(self.c_proj(y))
+        y = self.c_proj(y)
+        if dropout:
+            y = self.rdrop(y)
 
         if update_mask is not None:
             um = update_mask.unsqueeze(-1).to(y.dtype)  # [B,T,1]
@@ -290,6 +294,7 @@ class LocalTokenMixer(nn.Module):
         pos_coords: torch.Tensor,  # [B,T,2]  (e.g., [i, i/T])
         focus_mask: torch.Tensor,  # [B,T]    (True = update this pos)
         ws_slots: Optional[torch.Tensor] = None,
+        use_dropout: bool = True,
     ) -> torch.Tensor:
         B, T, d = tok_emb.shape
         device = tok_emb.device
@@ -322,7 +327,9 @@ class LocalTokenMixer(nn.Module):
         X, C, UM = pad_batch(
             X_list, C_list, UM_list
         )  # [B,Taug,d], [B,Taug,2], [B,Taug]
-        Y = self.attn(X, coords=C, update_mask=UM, context_mask=None)
+        Y = self.attn(
+            X, coords=C, update_mask=UM, context_mask=None, dropout=use_dropout
+        )
         Y_main = Y[:, :T, :]
         pooled = masked_mean(Y_main, focus_mask)  # [B,d]
         return pooled

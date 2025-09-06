@@ -57,7 +57,7 @@ def train(
             batch = batch.to(device)
             metrics = train_step(model, optimizer, batch, lamb, device)
             gain_mean = float(model.gate.gain_ema.mean().item())
-            tau_mean = sum(r.tau for r in model.reg_ff) / model.R
+            tau_mean = float(torch.stack([r.tau for r in model.reg_ff]).mean().item())
             if step % hparams.log_interval == 0:
                 line = (
                     f"{step},{metrics['ff']:.4f},{metrics['rtd']:.4f},{metrics['denoise']:.4f},"

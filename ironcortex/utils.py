@@ -1,5 +1,3 @@
-import math
-import random
 from typing import List, Tuple
 
 import torch
@@ -9,6 +7,7 @@ import torch.nn.functional as F
 
 # ==========================================================
 
+
 class RMSNorm(nn.Module):
     """Root-Mean-Square LayerNorm with learnable scale (weight).
 
@@ -16,6 +15,7 @@ class RMSNorm(nn.Module):
     Keeps magnitudes comparable, which is important because FF goodness
     is defined on post-norm activations (mean(x^2)).
     """
+
     def __init__(self, d: int, eps: float = 1e-5):
         super().__init__()
         self.eps = eps
@@ -39,7 +39,7 @@ def KWTA(x: torch.Tensor, k: int) -> torch.Tensor:
     absx = x.abs()
     # threshold at the kth largest absolute value (ties keep extra units)
     thresh = torch.topk(absx, k, dim=-1).values[..., -1:].expand_as(absx)
-    mask = (absx >= thresh)
+    mask = absx >= thresh
     return x * mask
 
 
@@ -127,7 +127,9 @@ def schedule_burst(u_mean: float, v_hat: float, R: int) -> int:
     return 0
 
 
-def should_halt(branch_scores: List[torch.Tensor], u_mean: float, k: int, K_inner: int) -> bool:
+def should_halt(
+    branch_scores: List[torch.Tensor], u_mean: float, k: int, K_inner: int
+) -> bool:
     """Early halting when confident and enough micro-steps done."""
     return (u_mean < 0.05) and (k >= max(1, K_inner // 2))
 
@@ -136,17 +138,19 @@ def should_halt(branch_scores: List[torch.Tensor], u_mean: float, k: int, K_inne
 # 3) Goodness & Region FF State
 # ==========================================================
 
+
 def goodness(h_stack: torch.Tensor) -> torch.Tensor:
     """Scalar FF goodness on a stack of post-norm activations: mean of squared."""
-    return (h_stack.pow(2).mean(dim=-1)).mean()  # average across stack and channels
+    h = h_stack.float()
+    return (h.pow(2).mean(dim=-1)).mean()
 
 
-class RegionFFState:
+class RegionFFState(nn.Module):
     """Per-region FF threshold τ (EMA)."""
+
     def __init__(self, init_tau: float = 0.0):
-        self.tau = float(init_tau)
+        super().__init__()
+        self.register_buffer("tau", torch.tensor(init_tau, dtype=torch.float32))
 
-    def update_tau(self, g_pos_mean: float, alpha: float = 0.01):
-        self.tau = (1.0 - alpha) * self.tau + alpha * float(g_pos_mean)
-
-
+    def update_tau(self, g_pos_mean: torch.Tensor, alpha: float = 0.01):
+        self.tau.lerp_(g_pos_mean.to(self.tau.dtype), alpha)
