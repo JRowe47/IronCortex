@@ -23,3 +23,5 @@ Swap the simple TokenHead_MFS for your preferred multi‑facet or MoE head.
 Strengthen Verifier targets using structural constraints specific to your domain.
 
 If you want strict FF (no cross-step backprop), wrap step outputs with detach() along cross‑time paths.
+
+Upcoming work: explore text generation with a diffusion paradigm and other non-standard model features.
