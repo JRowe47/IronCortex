@@ -123,6 +123,7 @@ class IronRoPESelfAttention(nn.Module):
         fb_headwise: bool = False,
         attn_pdrop: float = 0.0,
         resid_pdrop: float = 0.0,
+        dropout: bool = False,
         causal: bool = False,
     ):
         super().__init__()
@@ -134,8 +135,14 @@ class IronRoPESelfAttention(nn.Module):
 
         self.c_attn = nn.Linear(n_embd, 3 * n_embd)
         self.c_proj = nn.Linear(n_embd, n_embd)
-        self.adrop = nn.Dropout(attn_pdrop)
-        self.rdrop = nn.Dropout(resid_pdrop)
+        if dropout and attn_pdrop > 0.0:
+            self.adrop = nn.Dropout(attn_pdrop)
+        else:
+            self.adrop = nn.Identity()
+        if dropout and resid_pdrop > 0.0:
+            self.rdrop = nn.Dropout(resid_pdrop)
+        else:
+            self.rdrop = nn.Identity()
 
         # Attention mask
         if causal:
@@ -242,17 +249,18 @@ class IronRoPESelfAttention(nn.Module):
 
 
 class LocalTokenMixer(nn.Module):
-    """A tiny, bidirectional, Iron-RoPE attention block for denoising/mask-predict.
-
-    - Builds a few **anchor** pseudo tokens that summarize context at multiple scales.
-    - Uses Iron RoPE so attention depends on relative positions, helping mask repair.
-    - Only updates **focused** tokens (the corrupted / low-confidence ones).
-
-    Returns a pooled vector to feed into the sensor/motor regions.
-    """
+    """A tiny, bidirectional, Iron-RoPE attention block for denoising/mask-predict."""
 
     def __init__(
-        self, d: int, n_head: int = 4, block_size: int = 8192, m_tok: int = 64
+        self,
+        d: int,
+        n_head: int = 4,
+        block_size: int = 8192,
+        m_tok: int = 64,
+        *,
+        attn_pdrop: float = 0.0,
+        resid_pdrop: float = 0.0,
+        use_dropout: bool = False,
     ):
         super().__init__()
         self.attn = IronRoPESelfAttention(
@@ -265,6 +273,9 @@ class LocalTokenMixer(nn.Module):
             use_fourier_bias=True,
             fb_m=32,
             fb_coord_dim=1,
+            attn_pdrop=attn_pdrop,
+            resid_pdrop=resid_pdrop,
+            dropout=use_dropout,
             causal=False,
         )
         self.anch_embed = nn.Parameter(

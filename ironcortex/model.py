@@ -2,12 +2,10 @@ from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from .config import CortexConfig
 from .utils import (
     uncertainty_from_logits,
-    schedule_burst,
     should_halt,
     goodness,
     context_logprob,
@@ -66,12 +64,18 @@ class CortexReasoner(nn.Module):
 
         # Local token mixer (Iron RoPE) and input norm
         self.local_mix = LocalTokenMixer(
-            self.d, n_head=4, block_size=cfg.max_T, m_tok=64
+            self.d,
+            n_head=4,
+            block_size=cfg.max_T,
+            m_tok=64,
+            attn_pdrop=cfg.attn_pdrop,
+            resid_pdrop=cfg.resid_pdrop,
+            use_dropout=cfg.use_dropout,
         )
         self.norm_in = RMSNorm(self.d)
 
         # Per-region FF threshold τ
-        self.reg_ff = [RegionFFState() for _ in range(self.R)]
+        self.reg_ff = nn.ModuleList([RegionFFState() for _ in range(self.R)])
 
     def region_input(
         self, r: int, x_sensor: torch.Tensor, msg: torch.Tensor
@@ -187,7 +191,6 @@ class CortexReasoner(nn.Module):
 
             # Gate bias by value-of-compute:
             self.gate.value_bias = v_hat
-            burst_extra_k = schedule_burst(u_mean, v_hat, self.R)
 
             # Try each branch
             for b in range(self.cfg.B_br):

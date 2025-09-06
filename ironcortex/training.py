@@ -87,7 +87,6 @@ def train_step(
         )
 
         # -------- FF per-region losses --------
-        ff_loss = torch.tensor(0.0, device=device)
         # stack traces per region: list of [R,d] -> [K,R,d]
         if len(traces_pos) > 0:
             Hpos_stack = torch.stack(traces_pos, dim=0)  # [K,R,d]
@@ -99,29 +98,22 @@ def train_step(
         else:
             Hneg_stack = torch.zeros(0, model.R, model.d, device=device)
 
-        for r in range(model.R):
-            hpos = Hpos_stack[:, r, :] if Hpos_stack.numel() > 0 else None
-            hneg = Hneg_stack[:, r, :] if Hneg_stack.numel() > 0 else None
+        if Hpos_stack.numel() > 0:
+            gpos = Hpos_stack.float().pow(2).mean(dim=-1).mean(dim=0)
+        else:
+            gpos = torch.zeros(model.R, device=device)
+        if Hneg_stack.numel() > 0:
+            gneg = Hneg_stack.float().pow(2).mean(dim=-1).mean(dim=0)
+        else:
+            gneg = torch.zeros(model.R, device=device)
 
-            gpos = (
-                goodness(hpos)
-                if hpos is not None and hpos.numel() > 0
-                else torch.tensor(0.0, device=device)
-            )
-            gneg = (
-                goodness(hneg)
-                if hneg is not None and hneg.numel() > 0
-                else torch.tensor(0.0, device=device)
-            )
-            τ = model.reg_ff[r].tau
-            L_pos = F.softplus(-(gpos - τ))
-            L_neg = F.softplus(+(gneg - τ))
-            ff_loss = ff_loss + (L_pos + L_neg)
-            # Update τ (EMA) and gate usefulness (detach)
-            if hpos is not None and hpos.numel() > 0:
-                model.reg_ff[r].update_tau(float(gpos.detach().item()))
-            gain = float((gpos - gneg).detach().item())
-            model.gate.update_gain(r, gain)
+        tau = torch.stack([r.tau for r in model.reg_ff])
+        L_pos = F.softplus(-(gpos - tau))
+        L_neg = F.softplus(gneg - tau)
+        ff_loss = (L_pos + L_neg).sum()
+        for r in range(model.R):
+            model.reg_ff[r].update_tau(gpos[r].detach())
+        model.gate.update_gain_tensor((gpos - gneg).detach())
 
         # -------- RTD loss (on negative stream motor state) --------
         motor_neg = H_neg[model.io_idxs["motor"]]  # [d]

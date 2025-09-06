@@ -84,6 +84,10 @@ class Gate(nn.Module):
     def update_gain(self, r: int, goodness_gain: float, beta: float = 0.9):
         self.gain_ema[r] = beta * self.gain_ema[r] + (1.0 - beta) * float(goodness_gain)
 
+    def update_gain_tensor(self, gains: torch.Tensor, beta: float = 0.9):
+        """Vectorized gain update: gains[R] tensor."""
+        self.gain_ema.mul_(beta).add_(gains * (1.0 - beta))
+
     def update_homeo(
         self, reg_mask: torch.Tensor, eta: float = 1e-3, target: float = 0.1
     ):
