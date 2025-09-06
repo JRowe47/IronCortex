@@ -2,12 +2,9 @@ from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
 from .config import CortexConfig
 from .utils import (
     uncertainty_from_logits,
-    schedule_burst,
     should_halt,
     goodness,
     context_logprob,
@@ -71,7 +68,14 @@ class CortexReasoner(nn.Module):
         self.norm_in = RMSNorm(self.d)
 
         # Per-region FF threshold τ
-        self.reg_ff = [RegionFFState() for _ in range(self.R)]
+        self.reg_ff = nn.ModuleList([RegionFFState() for _ in range(self.R)])
+
+    def detach_state(self) -> None:
+        """Detach stateful tensors to avoid cross-step autograd graphs."""
+        if hasattr(self, "work"):
+            self.work.slots = self.work.slots.detach()
+        for region in getattr(self, "regions", []):
+            region.detach_state()
 
     def region_input(
         self, r: int, x_sensor: torch.Tensor, msg: torch.Tensor
@@ -103,7 +107,11 @@ class CortexReasoner(nn.Module):
             dim=-1,
         ).unsqueeze(0)
         focus_b = focus_map.unsqueeze(0)
-        sensor_vec = self.local_mix(tok_emb, pos, focus_b, ws_slots=None)[0]  # [d]
+        sensor_vec = self.local_mix(
+            tok_emb, pos, focus_b, ws_slots=None, use_dropout=self.cfg.ff_dropout
+        )[
+            0
+        ]  # [d]
 
         # --- 1) Gate selection ---
         H_hint = H_prev
@@ -187,7 +195,6 @@ class CortexReasoner(nn.Module):
 
             # Gate bias by value-of-compute:
             self.gate.value_bias = v_hat
-            burst_extra_k = schedule_burst(u_mean, v_hat, self.R)
 
             # Try each branch
             for b in range(self.cfg.B_br):
@@ -238,3 +245,33 @@ class CortexReasoner(nn.Module):
         best = int(torch.stack(branch_scores).argmax().item())
         self.work.slots, reg_mask, H_cur = branches[best]
         return H_cur, reg_mask, last_logits, traces
+
+    def reasoning_loop_batch(
+        self,
+        tokens_batch: torch.Tensor,
+        K_inner: int,
+        focus_batch: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
+        """Run reasoning_loop over a batch of token sequences.
+
+        Returns stacked final states, masks, logits, and per-sample traces.
+        """
+        B = tokens_batch.shape[0]
+        H_list, M_list, L_list, T_list = [], [], [], []
+        device = tokens_batch.device
+        for b in range(B):
+            self.detach_state()
+            H_prev, reg_mask_prev = self.zeros_state(device)
+            H_cur, reg_mask, logits, traces = self.reasoning_loop(
+                tokens_batch[b], K_inner, focus_batch[b], reg_mask_prev, H_prev
+            )
+            H_list.append(H_cur)
+            M_list.append(reg_mask)
+            L_list.append(logits)
+            T_list.append(traces)
+        return (
+            torch.stack(H_list),
+            torch.stack(M_list),
+            torch.stack(L_list),
+            T_list,
+        )

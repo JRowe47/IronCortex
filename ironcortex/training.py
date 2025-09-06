@@ -11,11 +11,7 @@ from .utils import goodness
 
 
 def _detach_model_state(model: CortexReasoner) -> None:
-    """Detach stateful tensors to avoid cross-step autograd graphs."""
-    if hasattr(model, "work"):
-        model.work.slots = model.work.slots.detach()
-    for region in getattr(model, "regions", []):
-        region.detach_state()
+    model.detach_state()
 
 
 # 8) FF Training Step (basic, single-sequence version)
@@ -70,34 +66,32 @@ def train_step(
             tokens, model.V, mode
         )
 
-        # --- Positive stream ---
-        _detach_model_state(model)
-        H_prev, reg_mask_prev = model.zeros_state(device)
+        # Batch positive and negative together
         focus_zero = torch.zeros_like(focus_map, dtype=torch.bool)
-        H_pos, reg_mask_p, logits_pos, traces_pos = model.reasoning_loop(
-            tokens, model.cfg.K_inner, focus_zero, reg_mask_prev, H_prev
+        x_all = torch.stack([tokens, x_neg], dim=0)
+        focus_all = torch.stack([focus_zero, focus_map], dim=0)
+        H_all, reg_all, logits_all, traces_all = model.reasoning_loop_batch(
+            x_all, model.cfg.K_inner, focus_all
         )
-        ce_loss = F.cross_entropy(logits_pos.unsqueeze(0), tokens[-1].unsqueeze(0))
+        H_pos, H_neg = H_all
+        reg_mask_p, reg_mask_n = reg_all
+        logits_pos, logits_neg = logits_all
+        traces_pos, traces_neg = traces_all
 
-        # --- Negative stream ---
-        _detach_model_state(model)
-        H_prev, reg_mask_prev = model.zeros_state(device)
-        H_neg, reg_mask_n, logits_neg, traces_neg = model.reasoning_loop(
-            x_neg, model.cfg.K_inner, focus_map, reg_mask_prev, H_prev
-        )
+        ce_loss = F.cross_entropy(logits_pos.unsqueeze(0), tokens[-1].unsqueeze(0))
 
         # -------- FF per-region losses --------
         ff_loss = torch.tensor(0.0, device=device)
-        # stack traces per region: list of [R,d] -> [K,R,d]
-        if len(traces_pos) > 0:
-            Hpos_stack = torch.stack(traces_pos, dim=0)  # [K,R,d]
-        else:
-            Hpos_stack = torch.zeros(0, model.R, model.d, device=device)
-
-        if len(traces_neg) > 0:
-            Hneg_stack = torch.stack(traces_neg, dim=0)  # [K,R,d]
-        else:
-            Hneg_stack = torch.zeros(0, model.R, model.d, device=device)
+        Hpos_stack = (
+            torch.stack(traces_pos, dim=0)
+            if len(traces_pos) > 0
+            else torch.zeros(0, model.R, model.d, device=device)
+        )
+        Hneg_stack = (
+            torch.stack(traces_neg, dim=0)
+            if len(traces_neg) > 0
+            else torch.zeros(0, model.R, model.d, device=device)
+        )
 
         for r in range(model.R):
             hpos = Hpos_stack[:, r, :] if Hpos_stack.numel() > 0 else None
@@ -117,16 +111,14 @@ def train_step(
             L_pos = F.softplus(-(gpos - τ))
             L_neg = F.softplus(+(gneg - τ))
             ff_loss = ff_loss + (L_pos + L_neg)
-            # Update τ (EMA) and gate usefulness (detach)
             if hpos is not None and hpos.numel() > 0:
-                model.reg_ff[r].update_tau(float(gpos.detach().item()))
+                model.reg_ff[r].update_tau(gpos.detach())
             gain = float((gpos - gneg).detach().item())
             model.gate.update_gain(r, gain)
 
         # -------- RTD loss (on negative stream motor state) --------
         motor_neg = H_neg[model.io_idxs["motor"]]  # [d]
         rtd_logits = model.rtdd(motor_neg).unsqueeze(0)  # [1,2]
-        # Build a simple target: if any replacement happened -> 0 else 1 (crude)
         rtd_target = (
             torch.tensor([[1, 0]], device=device)
             if is_real.all()
@@ -137,7 +129,6 @@ def train_step(
         # -------- Denoising loss (mask-predict) on masked positions --------
         token_logits, aux = model.lm_head(motor_neg)  # [V]
         if bool(denoise_mask.any()):
-            # For simplicity, compare against the *first* masked target
             first_idx = int(denoise_mask.nonzero(as_tuple=False)[0].item())
             target_id = denoise_targets[first_idx].unsqueeze(0)  # [1]
             ce = F.cross_entropy(token_logits.unsqueeze(0), target_id)
@@ -150,21 +141,18 @@ def train_step(
 
         # -------- Critic regression (predict realized Δgoodness) --------
         realized_delta_g = (goodness(H_pos) - goodness(H_neg)).detach()
-        # ws_state (neg stream) proxy: mean over final active
         active_n = reg_mask_n.nonzero(as_tuple=False).squeeze(-1)
         ws_state_neg = (
             H_neg[active_n].mean(dim=0)
             if active_n.numel() > 0
             else torch.zeros(model.d, device=device)
         )
-        # Use plan->critic on that
         p, g = model.plan(ws_state_neg, H_neg[model.io_idxs["motor"]])
         v_hat = model.critic(ws_state_neg, g)
         critic_loss = F.mse_loss(v_hat, realized_delta_g)
 
         # -------- Verifier auxiliary --------
         ver_score = model.verify(motor_neg)
-        # Structural target: encourage "OK" (1.0) when focus existed (we attempted a repair)
         ver_target = torch.tensor(1.0 if bool(focus_map.any()) else 0.5, device=device)
         verifier_loss = F.binary_cross_entropy(ver_score, ver_target)
 
@@ -177,11 +165,9 @@ def train_step(
             + λ.verify * verifier_loss
         )
 
-        # Backprop immediately to avoid building large graphs and double backward errors
         total.backward()
         total_loss_val += float(total.detach().item())
 
-        # Metrics (detach)
         total_ff += float(ff_loss.detach().item())
         total_rtd += float(rtd_loss.detach().item())
         total_denoise += float(denoise_loss.detach().item())
@@ -189,7 +175,6 @@ def train_step(
         total_verify += float(verifier_loss.detach().item())
         total_ce += float(ce_loss.detach().item())
 
-        # Homeostasis update (drifts slowly)
         model.gate.update_homeo(reg_mask_n)
 
     optimizer.step()

@@ -1,13 +1,13 @@
-import random
-from typing import Tuple
-
 import torch
 
 # 7) Corruptions for FF training (RTD / SPAN / BLOCK)
 # ==========================================================
 
+
 def corrupt(tokens: torch.Tensor, V: int, mode: str):
     """Return negative stream inputs and metadata.
+
+    GPU-friendly implementation without host-side loops.
 
     tokens: [T] Long
     mode in {'RTD', 'SPAN', 'BLOCK'}
@@ -18,52 +18,45 @@ def corrupt(tokens: torch.Tensor, V: int, mode: str):
     T = tokens.shape[0]
     device = tokens.device
 
-    if mode == 'RTD':
+    if mode == "RTD":
         p = 0.15
         mask = torch.rand(T, device=device) < p
-        repl = torch.randint(low=0, high=V, size=(T,), device=device)
+        repl = torch.randint(0, V, (T,), device=device)
         x_neg = torch.where(mask, repl, tokens)
         is_real = (x_neg == tokens).long()
         focus = mask
         denoise_targets = tokens
         denoise_mask = mask
 
-    elif mode == 'SPAN':
-        rate = 0.3
-        avg_len = 5
-        mask = torch.zeros(T, dtype=torch.bool, device=device)
-        t = 0
-        while t < T:
-            if random.random() < rate:
-                L = max(1, int(random.expovariate(1.0 / avg_len)))
-                mask[t: min(T, t + L)] = True
-                t += L
-            else:
-                t += 1
-        x_neg = tokens.clone()
-        MASK_ID = V - 1  # reserve last id as [MASK] if desired
-        x_neg[mask] = MASK_ID
+    elif mode == "SPAN":
+        avg_len = 5.0
+        start = torch.randint(0, T, (1,), device=device, dtype=torch.float32)
+        length = torch.poisson(torch.tensor([avg_len], device=device)).clamp(min=1)
+        end = torch.clamp(start + length, max=float(T))
+        positions = torch.arange(T, device=device, dtype=torch.float32)
+        mask = (positions >= start) & (positions < end)
+        MASK_ID = V - 1
+        x_neg = torch.where(mask, torch.full_like(tokens, MASK_ID), tokens)
         is_real = (~mask).long()
         focus = mask
         denoise_targets = tokens
         denoise_mask = mask
 
-    elif mode == 'BLOCK':
-        # Shuffle a random block
+    elif mode == "BLOCK":
         block_len = max(2, T // 8)
-        start = random.randint(0, max(0, T - block_len))
-        perm = torch.randperm(block_len, device=device)
+        start = torch.randint(0, T - block_len + 1, (1,), device=device)
+        idx = torch.arange(T, device=device)
+        mask = (idx >= start) & (idx < start + block_len)
+        block_idx = mask.nonzero(as_tuple=False).squeeze(-1)
+        perm = block_idx[torch.randperm(block_len, device=device)]
         x_neg = tokens.clone()
-        x_neg[start:start + block_len] = x_neg[start:start + block_len][perm]
+        x_neg[block_idx] = x_neg[perm]
         is_real = (x_neg == tokens).long()
-        focus = torch.zeros(T, dtype=torch.bool, device=device)
-        focus[start:start + block_len] = True
+        focus = mask
         denoise_targets = tokens
-        denoise_mask = focus
+        denoise_mask = mask
 
     else:
         raise ValueError("unknown mode")
 
     return x_neg, is_real, focus, denoise_targets, denoise_mask
-
-
