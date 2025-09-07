@@ -2,6 +2,7 @@ from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .config import CortexConfig
 from .utils import (
     uncertainty_from_logits,
@@ -16,10 +17,10 @@ from .heads import (
     Workspace,
     PlannerHead,
     CriticHead,
-    VerifierHead,
     RTDHead,
     TokenHead_MFS,
 )
+from .energy import EnergyVerifierHead
 from .gate import Gate, Router
 from .region import RWKVRegionCell
 
@@ -59,7 +60,7 @@ class CortexReasoner(nn.Module):
         self.work = Workspace(self.d, N_slots=8)
         self.plan = PlannerHead(self.d)
         self.critic = CriticHead(self.d)
-        self.verify = VerifierHead(self.d)
+        self.verify = EnergyVerifierHead(self.d, self.V, hidden=self.d)
 
         # Local token mixer (Iron RoPE) and input norm
         self.local_mix = LocalTokenMixer(
@@ -214,7 +215,10 @@ class CortexReasoner(nn.Module):
                     )
                 )
 
-                verify_score = self.verify(motor_state)  # scalar in [0,1]
+                ver_energy = self.verify(
+                    motor_state, F.softmax(logits.detach(), dim=-1)
+                )
+                verify_score = -ver_energy
                 # Estimate Δgoodness (local): g(H_cur) - g(H_prev)
                 delta_g = goodness(H_cur) - goodness(H_prev_b)
                 score = (
