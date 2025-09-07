@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from .model import CortexReasoner
 from .corruptions import corrupt
 from .utils import goodness
+from .ff_energy import ff_energy_loss
 
 
 def _detach_model_state(model: CortexReasoner) -> None:
@@ -117,6 +118,7 @@ def train_step(
             model.gate.update_gain(r, gain)
 
         # -------- RTD loss (on negative stream motor state) --------
+        motor_pos = H_pos[model.io_idxs["motor"]]
         motor_neg = H_neg[model.io_idxs["motor"]]  # [d]
         rtd_logits = model.rtdd(motor_neg).unsqueeze(0)  # [1,2]
         rtd_target = (
@@ -151,10 +153,12 @@ def train_step(
         v_hat = model.critic(ws_state_neg, g)
         critic_loss = F.mse_loss(v_hat, realized_delta_g)
 
-        # -------- Verifier auxiliary --------
-        ver_score = model.verify(motor_neg)
-        ver_target = torch.tensor(1.0 if bool(focus_map.any()) else 0.5, device=device)
-        verifier_loss = F.binary_cross_entropy(ver_score, ver_target)
+        # -------- Verifier energy FF loss --------
+        y_pos = F.one_hot(tokens[-1], num_classes=model.V).float()
+        y_neg = F.softmax(logits_neg.detach(), dim=-1)
+        E_pos = model.verify(motor_pos.detach(), y_pos)
+        E_neg = model.verify(motor_neg.detach(), y_neg)
+        verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
 
         # -------- Total --------
         total = (
