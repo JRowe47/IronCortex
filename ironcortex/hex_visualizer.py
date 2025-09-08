@@ -75,7 +75,10 @@ class HexStateVisualizer:
         mapped from black (0) to matrix green (1).
         """
 
-        self.ax.collections.clear()
+        try:
+            self.ax.collections.clear()
+        except AttributeError:
+            del self.ax.collections[:]
         for (q, r), s in zip(self.coords, states):
             x, y = self._axial_to_cart(q, r)
             outer = Poly3DCollection(
