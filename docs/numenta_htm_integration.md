@@ -6,8 +6,8 @@ Iron Cortex already employs several biologically inspired components. This docum
 bringing ideas from Numenta's Thousand Brains Theory and Hierarchical Temporal Memory (HTM) into the codebase.
 
 ## 1. Strengthen Sparse Representations
-- **Spatial pooler style token encodings** – Replace the dense token embedding with a sparse distributed representation to
-  mirror HTM encoders. The current model uses a standard embedding layer[model-embed].
+- **Spatial pooler style token encodings** – Implemented via a fixed sparse distributed representation (`SparseTokenEncoder`)
+  replacing the dense embedding layer[model-embed].
 - **Diverse region receptive fields** – Introduce sparsity masks on router edge weights so regions specialize to different
   feature subsets. At present every neighbor connection owns a full linear transform[router-edges].
 - **Tune KWTA and homeostasis** – Experiment with smaller `k` in KWTA and lower `k_active` for the gate. The region cell
@@ -40,7 +40,7 @@ These steps aim to make Iron Cortex sparser, more predictive, and more adaptive 
 learning framework.
 
 <!-- References -->
-[model-embed]: ../ironcortex/model.py#L48-L49
+[model-embed]: ../ironcortex/model.py#L49-L51
 [router-edges]: ../ironcortex/gate.py#L110-L114
 [region-kwta]: ../ironcortex/region.py#L84-L85
 [gate-homeo]: ../ironcortex/gate.py#L89-L93
