@@ -51,7 +51,7 @@ def generate(
                 _, refined, _ = thinker.optimize(motor_state, probs)
             probs = refined.softmax(dim=-1)
             # avoid predicting the padding token (V-1)
-            probs[:, -1] = 0
+            probs[-1] = 0
             probs = probs / probs.sum(dim=-1, keepdim=True)
             pred = torch.multinomial(probs, num_samples=1).squeeze(-1)
             maxp = probs.max(dim=-1).values

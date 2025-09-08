@@ -66,9 +66,10 @@ def diffusion_generate(
         H_prev, reg_mask_prev, logits, traces = model.reasoning_loop(
             noisy, model.cfg.K_inner, focus_map, reg_mask_prev, H_prev
         )
-        logits[:, -1] = float("-inf")
+        logits[-1] = float("-inf")
         probs = logits.softmax(dim=-1)
-        tokens = torch.multinomial(probs, num_samples=1).squeeze(-1)
+        tokens = torch.multinomial(probs, num_samples=T_total, replacement=True)
+        tokens[:T0] = prompt_tokens.to(device)
         if region_generators:
             for fn in region_generators:
                 tokens = fn(tokens)
