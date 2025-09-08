@@ -9,6 +9,7 @@ from ironcortex import (
     CortexReasoner,
     DiffusionConfig,
     LossWeights,
+    evaluate_perplexity,
     generate,
     diffusion_generate,
     hex_axial_coords,
@@ -46,7 +47,7 @@ def train(
 ) -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     lamb = LossWeights()
-    header = "step,ff,rtd,denoise,critic,verify,E_pos,E_neg,ce,total,gain_mean,tau_mean"
+    header = "step,ff,rtd,denoise,critic,verify,E_pos,E_neg,xent,ppl,total,gain_mean,tau_mean"
     print(header)
     step = 0
     for epoch in range(1, hparams.epochs + 1):
@@ -57,10 +58,12 @@ def train(
             gain_mean = float(model.gate.gain_ema.mean().item())
             tau_mean = float(torch.stack([r.tau for r in model.reg_ff]).mean().item())
             if step % hparams.log_interval == 0:
+                eval_metrics = evaluate_perplexity(model, batch, device)
                 line = (
                     f"{step},{metrics['ff']:.4f},{metrics['rtd']:.4f},{metrics['denoise']:.4f},"
                     f"{metrics['critic']:.4f},{metrics['verify']:.4f},{metrics['E_pos']:.4f},"
-                    f"{metrics['E_neg']:.4f},{metrics['ce']:.4f},{metrics['total']:.4f},"
+                    f"{metrics['E_neg']:.4f},{eval_metrics['cross_entropy']:.4f},"
+                    f"{eval_metrics['perplexity']:.2f},{metrics['total']:.4f},"
                     f"{gain_mean:.4f},{tau_mean:.4f}"
                 )
                 print(line)
