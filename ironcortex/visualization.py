@@ -9,6 +9,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping
 
+import matplotlib
+
+matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 
 
@@ -54,7 +57,10 @@ class TrainVisualizer:
             self.axes[axis_name] = ax
         plt.tight_layout()
         plt.ion()
-        plt.show(block=False)
+        try:  # pragma: no cover - headless environments
+            plt.show(block=False)
+        except Exception:
+            pass
 
     def update(
         self, step: int, metrics: Mapping[str, float], eval_metrics: Mapping[str, float]
@@ -72,5 +78,6 @@ class TrainVisualizer:
                 ax.relim()
                 ax.autoscale_view()
         self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
+        if hasattr(self.fig.canvas, "flush_events"):
+            self.fig.canvas.flush_events()
         plt.pause(0.001)
