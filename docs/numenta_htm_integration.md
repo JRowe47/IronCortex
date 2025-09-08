@@ -14,8 +14,9 @@ bringing ideas from Numenta's Thousand Brains Theory and Hierarchical Temporal M
   applies KWTA after each update[region-kwta] and the gate updates homeostatic firing rates[gate-homeo].
 
 ## 2. Incorporate Temporal Memory for Sequence Prediction
-- **Predictive activation** – Allow inactive regions to maintain a small predictive trace so they respond faster when
-  selected, analogous to HTM distal dendrites.
+- **Predictive activation** – Implemented via a per-region `predict` trace that accumulates router
+  messages while inactive so regions respond faster when later selected, analogous to HTM distal
+  dendrites.
 - **Hebbian fast weights for transitions** – Maintain a light-weight association matrix of region-to-region transitions
   and bias the gate toward frequently observed sequences. Regions already store fast weights via `state_num` and
   `state_den` buffers[region-fastweights].

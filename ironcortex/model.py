@@ -135,6 +135,8 @@ class CortexReasoner(nn.Module):
         H_cur = torch.zeros_like(H_prev)
         for r in range(self.R):
             if not bool(reg_mask[r]):
+                # Update predictive trace from messages but skip actual update
+                self.regions[r].predict(M[r])
                 self.regions[r].skip()
                 continue
             sensor_or_zero = (
