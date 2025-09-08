@@ -30,6 +30,8 @@ class RWKVRegionCell(nn.Module):
         self.decay_param = nn.Parameter(torch.zeros(d))
         self.register_buffer("state_num", torch.zeros(d), persistent=False)
         self.register_buffer("state_den", torch.zeros(d), persistent=False)
+        # Predictive trace for HTM-style temporal memory
+        self.register_buffer("pred", torch.zeros(d), persistent=False)
         self.dt = 0
         # Iron time rotation pairs for v
         self.m_time = max(0, min(d // 8 // 2, m_time_pairs))
@@ -53,17 +55,26 @@ class RWKVRegionCell(nn.Module):
     def skip(self):
         self.dt += 1
 
+    def predict(self, msg: torch.Tensor, alpha: float = 0.95):
+        """Update predictive trace from router messages when inactive.
+
+        alpha controls decay of the previous trace."""
+        self.pred = alpha * self.pred + (1.0 - alpha) * msg
+
     def detach_state(self):
         """Detach fast-weight buffers to prevent graph ties across steps."""
         self.state_num = self.state_num.detach()
         self.state_den = self.state_den.detach()
+        self.pred = self.pred.detach()
 
     def step(self, x_in: torch.Tensor, step_pos_scalar: float) -> torch.Tensor:
         """One RWKV region update.
 
         x_in: [d] input vector, step_pos_scalar ∈ [0,1] inner-step position
         """
-        x = self.norm(x_in)
+        x = self.norm(x_in + self.pred)
+        # Clear predictive trace after use
+        self.pred.zero_()
         self.fast_forward()
         r = torch.sigmoid(self.r_lin(x))
         k = self.k_lin(x)  # keep unrotated (exp(k) >= 0)
