@@ -17,6 +17,7 @@ from ironcortex import (
     load_tiny_shakespeare,
     train_step,
     TrainVisualizer,
+    HexStateVisualizer,
 )
 
 
@@ -35,6 +36,7 @@ class TrainHyperParams:
     gen_interval: int = 20
     gen_prompt: str = "ROMEO:"
     visualize: bool = False
+    hex_visualize: bool = False
 
 
 def build_model(device: torch.device) -> CortexReasoner:
@@ -60,6 +62,12 @@ def train(
             vis = TrainVisualizer()
         except Exception as e:  # pragma: no cover - visualization optional
             print(f"visualization disabled: {e}")
+    hex_vis = None
+    if hparams.hex_visualize:
+        try:
+            hex_vis = HexStateVisualizer(R=model.cfg.R)
+        except Exception as e:  # pragma: no cover - visualization optional
+            print(f"hex visualization disabled: {e}")
     prompt_ids = torch.tensor(
         list(hparams.gen_prompt.encode("utf-8")), dtype=torch.long, device=device
     )
@@ -86,6 +94,9 @@ def train(
                         {**metrics, "gain_mean": gain_mean, "tau_mean": tau_mean},
                         eval_metrics,
                     )
+                if hex_vis is not None:
+                    gains = torch.sigmoid(model.gate.gain_ema.detach()).tolist()
+                    hex_vis.update(gains)
             if hparams.gen_interval and step % hparams.gen_interval == 0:
                 sample = generate(model, prompt_ids, T_total=hparams.gen_tokens)
                 txt = bytes(sample.tolist()).decode("utf-8", errors="ignore")
@@ -124,12 +135,25 @@ def main() -> None:
         default=None,
         help="Random seed (default: random)",
     )
+    parser.add_argument(
+        "--visualize",
+        action="store_true",
+        help="Enable training metrics visualizer",
+    )
+    parser.add_argument(
+        "--hex-vis",
+        action="store_true",
+        dest="hex_visualize",
+        help="Enable hex region state visualizer",
+    )
     args = parser.parse_args()
     seed = args.seed if args.seed is not None else random.randrange(2**32)
     random.seed(seed)
     torch.manual_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    hparams = TrainHyperParams(seed=seed)
+    hparams = TrainHyperParams(
+        seed=seed, visualize=args.visualize, hex_visualize=args.hex_visualize
+    )
     tokens = load_tiny_shakespeare("data")
     n_seq = len(tokens) // hparams.seq_len
     tokens = tokens[: n_seq * hparams.seq_len].view(n_seq, hparams.seq_len)
