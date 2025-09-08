@@ -10,9 +10,14 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping
 
 import matplotlib
-
-matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
+
+
+def _is_interactive_backend() -> bool:
+    """Return True if matplotlib is using an interactive backend."""
+
+    backend = matplotlib.get_backend().lower()
+    return backend not in {"agg", "pdf", "ps", "svg", "cairo"}
 
 
 @dataclass
@@ -30,6 +35,7 @@ class TrainVisualizer:
 
     def __post_init__(self) -> None:
         plt.style.use("dark_background")
+        self.interactive = _is_interactive_backend()
         if self.axes_map is None:
             self.axes_map = {
                 "loss": ["ff", "rtd", "denoise", "critic", "verify", "total"],
@@ -56,11 +62,12 @@ class TrainVisualizer:
             ax.legend(loc="upper right")
             self.axes[axis_name] = ax
         plt.tight_layout()
-        plt.ion()
-        try:  # pragma: no cover - headless environments
-            plt.show(block=False)
-        except Exception:
-            pass
+        if self.interactive:
+            plt.ion()
+            try:  # pragma: no cover - headless environments
+                plt.show(block=False)
+            except Exception:
+                self.interactive = False
 
     def update(
         self, step: int, metrics: Mapping[str, float], eval_metrics: Mapping[str, float]
@@ -78,6 +85,7 @@ class TrainVisualizer:
                 ax.relim()
                 ax.autoscale_view()
         self.fig.canvas.draw()
-        if hasattr(self.fig.canvas, "flush_events"):
-            self.fig.canvas.flush_events()
-        plt.pause(0.001)
+        if self.interactive:
+            if hasattr(self.fig.canvas, "flush_events"):
+                self.fig.canvas.flush_events()
+            plt.pause(0.001)
