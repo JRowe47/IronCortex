@@ -274,7 +274,7 @@ class LocalTokenMixer(nn.Module):
             causal=False,
         )
         self.anch_embed = nn.Parameter(
-            torch.randn(3, d)
+            torch.randn(3, d) * 0.02
         )  # center / span_start / span_end
         self.apply(init_weights)
 
