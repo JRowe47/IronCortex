@@ -171,6 +171,8 @@ class IronRoPESelfAttention(nn.Module):
             else:
                 self.beta_cos = nn.Parameter(torch.zeros(self.fb_m))
                 self.beta_sin = nn.Parameter(torch.zeros(self.fb_m))
+            nn.init.normal_(self.beta_cos, std=0.01)
+            nn.init.normal_(self.beta_sin, std=0.01)
             self.fb_scale = 1.0 / math.sqrt(self.fb_m)
 
     def forward(
