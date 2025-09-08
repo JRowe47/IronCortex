@@ -1,3 +1,4 @@
+import math
 import torch
 import torch.nn as nn
 
@@ -19,7 +20,7 @@ class RWKVRegionCell(nn.Module):
     diffusion time without breaking w=exp(k) positivity.
     """
 
-    def __init__(self, d: int, m_time_pairs: int = 16):
+    def __init__(self, d: int, m_time_pairs: int = 16, init_decay: float = 0.25):
         super().__init__()
         self.d = d
         self.norm = RMSNorm(d)
@@ -27,7 +28,9 @@ class RWKVRegionCell(nn.Module):
         self.k_lin = nn.Linear(d, d, bias=False)
         self.v_lin = nn.Linear(d, d, bias=False)
         self.o_lin = nn.Linear(d, d, bias=False)
-        self.decay_param = nn.Parameter(torch.zeros(d))
+        decay = math.sqrt(init_decay)
+        init_val = torch.log(torch.tensor(decay / (1 - decay), dtype=torch.float32))
+        self.decay_param = nn.Parameter(torch.full((d,), init_val))
         self.register_buffer("state_num", torch.zeros(d), persistent=False)
         self.register_buffer("state_den", torch.zeros(d), persistent=False)
         # Predictive trace for HTM-style temporal memory

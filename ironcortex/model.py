@@ -50,7 +50,9 @@ class CortexReasoner(nn.Module):
         self.embed = SparseTokenEncoder(self.V, self.d, cfg.sdr_k)
 
         # Regions
-        self.regions = nn.ModuleList([RWKVRegionCell(self.d) for _ in range(self.R)])
+        self.regions = nn.ModuleList(
+            [RWKVRegionCell(self.d, init_decay=cfg.init_decay) for _ in range(self.R)]
+        )
 
         # Gate & Router
         self.gate = Gate(self.R, self.neighbors, io_idxs)
