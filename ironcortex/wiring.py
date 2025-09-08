@@ -1,35 +1,67 @@
-from typing import List
+"""Hex-grid wiring helpers using axial coordinates.
+
+The previous implementation approximated hex wiring with a square grid. This
+module now provides true axial hex layouts that can handle arbitrary numbers of
+regions. Regions are assigned in a clockwise spiral starting from the origin
+and adjacency lists are constructed using the six axial directions.
+"""
+
+from typing import List, Dict, Tuple
 
 import torch
 
-# 10) Minimal wiring helpers (hex-like neighbor graph)
-# ==========================================================
 
-def hex_neighbors_grid(R: int, side: int) -> List[List[int]]:
-    """Build a simple 2D grid neighborhood (4-neighbors) as a hex proxy.
+def hex_axial_coords(R: int) -> torch.Tensor:
+    """Return axial ``(q, r)`` coordinates for ``R`` regions.
 
-    For research convenience; replace with true hex axial coords if you have them.
-    Assumes R == side * side. Returns adjacency list.
+    Regions are arranged on a hex grid in a clockwise spiral starting at the
+    origin. The output is a ``(R, 2)`` float tensor where each row contains the
+    ``q`` and ``r`` coordinates of a region.
     """
-    assert R == side * side
-    neighbors = [[] for _ in range(R)]
-    def idx(x, y): return x * side + y
-    for i in range(side):
-        for j in range(side):
-            r = idx(i, j)
-            for (di, dj) in [(-1, 0), (1, 0), (0, -1), (0, 1)]:  # 4-neigh
-                ni, nj = i + di, j + dj
-                if 0 <= ni < side and 0 <= nj < side:
-                    neighbors[r].append(idx(ni, nj))
-    return neighbors
 
+    if R <= 0:
+        return torch.zeros((0, 2), dtype=torch.float32)
 
-def hex_axial_coords_from_grid(R: int, side: int) -> torch.Tensor:
-    """Produce 2-D coordinates for regions laid out on a square grid (proxy for hex)."""
-    coords = []
-    for i in range(side):
-        for j in range(side):
-            coords.append([float(i), float(j)])
+    coords: List[Tuple[int, int]] = [(0, 0)]
+    if R == 1:
+        return torch.tensor(coords, dtype=torch.float32)
+
+    k = 1  # current ring radius
+    while len(coords) < R:
+        q, r = k, 0  # start at eastern side of the ring
+        # Directions for clockwise traversal starting from east → southeast
+        dirs = [(0, -1), (-1, 0), (-1, 1), (0, 1), (1, 0), (1, -1)]
+        for dq, dr in dirs:
+            for _ in range(k):
+                coords.append((q, r))
+                if len(coords) == R:
+                    return torch.tensor(coords, dtype=torch.float32)
+                q += dq
+                r += dr
+        k += 1
+
     return torch.tensor(coords, dtype=torch.float32)
 
 
+def hex_neighbors(R: int) -> List[List[int]]:
+    """Build clockwise neighbor lists for ``R`` hex regions.
+
+    The neighbor ordering follows the six axial directions starting from east
+    and moving clockwise. Regions on the boundary simply omit missing
+    neighbors.
+    """
+
+    coords = hex_axial_coords(R)
+    coord_map: Dict[Tuple[int, int], int] = {
+        (int(q), int(r)): i for i, (q, r) in enumerate(coords.tolist())
+    }
+
+    neighbors: List[List[int]] = [[] for _ in range(R)]
+    directions = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+    for i, (q, r) in enumerate(coords.tolist()):
+        for dq, dr in directions:
+            j = coord_map.get((int(q + dq), int(r + dr)))
+            if j is not None:
+                neighbors[i].append(j)
+
+    return neighbors

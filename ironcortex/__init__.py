@@ -13,8 +13,8 @@ from .diffusion import (
     diffusion_generate as diffusion_generate,
 )
 from .wiring import (
-    hex_neighbors_grid as hex_neighbors_grid,
-    hex_axial_coords_from_grid as hex_axial_coords_from_grid,
+    hex_neighbors as hex_neighbors,
+    hex_axial_coords as hex_axial_coords,
 )
 from .data import (
     download_tiny_shakespeare as download_tiny_shakespeare,
