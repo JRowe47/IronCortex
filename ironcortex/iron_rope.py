@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import pad_batch, masked_mean, extract_spans
+from .utils import pad_batch, masked_mean, extract_spans, init_weights
 
 # 1) Iron RoPE: Fourier banks, rotary rotation, relative bias
 # ==========================================================
@@ -274,6 +274,7 @@ class LocalTokenMixer(nn.Module):
         self.anch_embed = nn.Parameter(
             torch.randn(3, d)
         )  # center / span_start / span_end
+        self.apply(init_weights)
 
     @torch.no_grad()
     def build_anchors(self, T: int, focus_mask: torch.Tensor, strides=(128, 32)):
