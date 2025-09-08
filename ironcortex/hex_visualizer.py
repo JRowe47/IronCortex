@@ -90,8 +90,10 @@ class HexStateVisualizer:
         except Exception:
             # Some matplotlib backends expose "collections" as an ArtistList
             # whose ``clear``/deletion operations raise ``TypeError``. Replace
-            # the container wholesale to avoid these issues.
-            self.ax.collections = type(self.ax.collections)()
+            # the container wholesale to avoid these issues. ``ArtistList``
+            # requires constructor arguments, so instantiate a plain list
+            # instead of ``type(self.ax.collections)()``.
+            self.ax.collections = []
         for (q, r), s in zip(self.coords, states):
             x, y = self._axial_to_cart(q, r)
             outer = Poly3DCollection(
