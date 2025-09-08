@@ -30,9 +30,9 @@ bringing ideas from Numenta's Thousand Brains Theory and Hierarchical Temporal M
   the decoder uses for consensus prediction.
 
 ## 4. Enhance Online Plasticity
-- **Local Hebbian updates** – Augment gradient-based learning with small Hebbian nudges when regions succeed, echoing HTM's
-  synapse permanence adjustments. The training loop already tracks per-region goodness differences and updates gate
-  gains accordingly[training-ff].
+- **Local Hebbian updates** – Implemented via small router edge nudges when a region's positive stream
+  outperforms its negative counterpart, echoing HTM's synapse permanence adjustments. The training loop still
+  tracks per-region goodness differences and updates gate gains accordingly[training-ff].
 - **Learning-rate modulation by surprise** – Use verifier or RTD losses as anomaly signals to momentarily boost learning
   rates when the model encounters unexpected inputs.
 
@@ -46,4 +46,4 @@ learning framework.
 [gate-homeo]: ../ironcortex/gate.py#L89-L93
 [region-fastweights]: ../ironcortex/region.py#L31-L32
 [model-lmhead]: ../ironcortex/model.py#L154-L176
-[training-ff]: ../ironcortex/training.py#L100-L121
+[training-ff]: ../ironcortex/training.py#L100-L132
