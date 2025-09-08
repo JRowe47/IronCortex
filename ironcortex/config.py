@@ -11,5 +11,6 @@ class CortexConfig:
     B_br: int = 2
     k_active: int = 8
     max_T: int = 8192
+    init_decay: float = 0.25
     # Optional dropout in goodness path (disabled by default)
     ff_dropout: bool = False
