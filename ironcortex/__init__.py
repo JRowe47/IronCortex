@@ -24,4 +24,5 @@ from .data import (
     TextDiffusionSample as TextDiffusionSample,
 )
 from .visualization import TrainVisualizer as TrainVisualizer
+from .hex_visualizer import HexStateVisualizer as HexStateVisualizer
 from .sdr import SparseTokenEncoder as SparseTokenEncoder
