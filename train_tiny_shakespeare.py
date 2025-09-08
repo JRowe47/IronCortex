@@ -1,3 +1,4 @@
+import argparse
 import random
 from dataclasses import dataclass
 
@@ -28,6 +29,7 @@ class TrainHyperParams:
     seq_len: int = 256
     gen_tokens: int = 100
     diffusion_steps: int = 4
+    seed: int | None = None
 
 
 def build_model(device: torch.device) -> CortexReasoner:
@@ -93,10 +95,19 @@ def run_generation(
 
 
 def main() -> None:
-    torch.manual_seed(0)
-    random.seed(0)
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed (default: random)",
+    )
+    args = parser.parse_args()
+    seed = args.seed if args.seed is not None else random.randrange(2**32)
+    random.seed(seed)
+    torch.manual_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    hparams = TrainHyperParams()
+    hparams = TrainHyperParams(seed=seed)
     tokens = load_tiny_shakespeare("data")
     n_seq = len(tokens) // hparams.seq_len
     tokens = tokens[: n_seq * hparams.seq_len].view(n_seq, hparams.seq_len)
@@ -107,6 +118,7 @@ def main() -> None:
     model = build_model(device)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model parameters: {n_params/1e6:.2f}M")
+    print(f"using seed {seed}")
     train(model, loader, hparams, device)
     run_generation(model, "ROMEO:", hparams)
 
