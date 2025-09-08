@@ -34,7 +34,7 @@ def test_smoke():
     prompt = torch.randint(low=0, high=cfg.V - 1, size=(4,), device=device)
     out = generate(model, prompt, T_total=8, max_outer_iters=2, conf_threshold=0.8)
     assert out.shape[0] == 8
-    assert (out != 0).any()
+    assert (out != 0).all()
     assert (out < cfg.V - 1).all()
     diff_out = diffusion_generate(
         model, prompt, T_total=8, diff_cfg=DiffusionConfig(steps=2)
