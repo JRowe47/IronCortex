@@ -34,7 +34,13 @@ def download_tiny_shakespeare(root: str) -> str:
     os.makedirs(root, exist_ok=True)
     out_path = os.path.join(root, "tiny_shakespeare.txt")
     if not os.path.exists(out_path):
-        urllib.request.urlretrieve(TINY_SHAKESPEARE_URL, out_path)
+        try:
+            with urllib.request.urlopen(TINY_SHAKESPEARE_URL, timeout=30) as resp:
+                data = resp.read()
+            with open(out_path, "wb") as f:
+                f.write(data)
+        except Exception as e:  # pragma: no cover - network failures
+            raise RuntimeError("failed to download Tiny Shakespeare dataset") from e
     return out_path
 
 
