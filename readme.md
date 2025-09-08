@@ -4,6 +4,7 @@ Iron Cortex is a research project exploring a reasoning-native neural architectu
 
 ## Recent Changes
 
+- Added Numenta HTM integration notes under `docs/numenta_htm_integration.md`.
 - Energy-based verifier head and forward-forward energy loss utilities.
 - Diffusion-style generation and gradient-based token refinement helpers.
 - Dataset loaders for Tiny Shakespeare and text diffusion samples.
@@ -25,6 +26,8 @@ ironcortex/
 ├── training.py          # Loss weights and train_step routine
 ├── generation.py        # Mask-predict generator with energy descent
 ├── diffusion.py         # Diffusion-style token generator
+├── evaluation.py        # Evaluation helpers
+├── visualization.py     # Plotting utilities
 ├── corruptions.py       # Negative/denoising transformations
 ├── thinking.py          # Gradient-based refinement helper
 ├── utils.py             # RMSNorm, KWTA, batching, and other utilities
@@ -33,6 +36,11 @@ tests/
 └── test_smoke.py        # Basic integration test
 train_tiny_shakespeare.py  # Example training script
 ```
+
+## Documentation
+
+- [Numenta HTM integration ideas](docs/numenta_htm_integration.md)
+- [Project to-do list](TODO.md)
 
 ## Getting Started
 
@@ -51,4 +59,4 @@ train_tiny_shakespeare.py  # Example training script
    The `--seed` flag controls reproducibility. If omitted, a random seed is
    chosen each run.
 
-The repository is under active development. Replace the grid wiring with true hex axial layouts, swap in alternative token heads, and strengthen verifier targets to explore new reasoning behaviors.
+The repository is under active development. See [TODO.md](TODO.md) for planned improvements such as hex axial wiring, new token heads, and stronger verifier targets.
