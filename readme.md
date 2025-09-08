@@ -45,7 +45,10 @@ train_tiny_shakespeare.py  # Example training script
 2. Train on Tiny Shakespeare:
 
    ```bash
-   python train_tiny_shakespeare.py
+   python train_tiny_shakespeare.py --seed 1234  # optional
    ```
+
+   The `--seed` flag controls reproducibility. If omitted, a random seed is
+   chosen each run.
 
 The repository is under active development. Replace the grid wiring with true hex axial layouts, swap in alternative token heads, and strengthen verifier targets to explore new reasoning behaviors.
