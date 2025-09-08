@@ -34,7 +34,7 @@ class TrainHyperParams:
     seed: int | None = None
     gen_interval: int = 20
     gen_prompt: str = "ROMEO:"
-    visualize: bool = True
+    visualize: bool = False
 
 
 def build_model(device: torch.device) -> CortexReasoner:
@@ -54,7 +54,12 @@ def train(
     header = "step,ff,rtd,denoise,critic,verify,E_pos,E_neg,xent,ppl,total,gain_mean,tau_mean"
     print(header)
     step = 0
-    vis = TrainVisualizer() if hparams.visualize else None
+    vis = None
+    if hparams.visualize:
+        try:
+            vis = TrainVisualizer()
+        except Exception as e:  # pragma: no cover - visualization optional
+            print(f"visualization disabled: {e}")
     prompt_ids = torch.tensor(
         list(hparams.gen_prompt.encode("utf-8")), dtype=torch.long, device=device
     )
