@@ -79,5 +79,7 @@ train_tiny_shakespeare.py  # Example training script
    ```
 
    The `--seed` flag controls reproducibility. If omitted, a random seed is chosen each run.
+   Add `--visualize` to enable realtime training plots, or `--hex-vis` to display
+   region states on a hex grid.
 
 The repository is under active development. See [TODO.md](TODO.md) for planned improvements such as hex axial wiring, new token heads, and stronger verifier targets.
