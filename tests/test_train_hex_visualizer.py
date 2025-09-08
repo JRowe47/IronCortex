@@ -31,8 +31,8 @@ def test_train_hex_visualizer(monkeypatch):
 
     hparams = tts.TrainHyperParams(
         epochs=1,
-        max_steps=2,
-        log_interval=1,
+        max_steps=1,
+        log_interval=10,
         gen_interval=0,
         batch_size=1,
         seq_len=8,

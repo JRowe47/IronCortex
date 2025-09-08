@@ -74,6 +74,8 @@ def train(
     if hparams.hex_visualize:
         try:
             hex_vis = HexStateVisualizer(R=model.cfg.R)
+            gains = torch.sigmoid(model.gate.gain_ema.detach()).tolist()
+            hex_vis.update(gains)
         except Exception as e:  # pragma: no cover - visualization optional
             print(f"hex visualization disabled: {e}")
     prompt_ids = torch.tensor(
