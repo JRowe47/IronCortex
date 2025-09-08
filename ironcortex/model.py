@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .config import CortexConfig
+from .sdr import SparseTokenEncoder
 from .utils import (
     uncertainty_from_logits,
     should_halt,
@@ -46,7 +47,7 @@ class CortexReasoner(nn.Module):
         self.register_buffer("reg_coords", reg_coords.to(torch.float32))
 
         # Tokens
-        self.embed = nn.Embedding(self.V, self.d)
+        self.embed = SparseTokenEncoder(self.V, self.d, cfg.sdr_k)
 
         # Regions
         self.regions = nn.ModuleList([RWKVRegionCell(self.d) for _ in range(self.R)])
