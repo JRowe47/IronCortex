@@ -119,6 +119,16 @@ def train_step(
                 model.reg_ff[r].update_tau(gpos.detach())
             gain = float((gpos - gneg).detach().item())
             model.gate.update_gain(r, gain)
+            # Local Hebbian update: nudge router edges when region gains are positive
+            if gain > 0 and bool(reg_mask_p[r]):
+                post = H_pos[r].detach()
+                with torch.no_grad():
+                    for s in model.neighbors[r]:
+                        if not bool(reg_mask_p[s]):
+                            continue
+                        pre = H_pos[s].detach()
+                        W = model.router.W_edge[f"{s}->{r}"].weight
+                        W.add_(1e-3 * gain * torch.outer(post, pre))
 
         # -------- RTD loss (on negative stream motor state) --------
         motor_pos = H_pos[model.io_idxs["motor"]]
