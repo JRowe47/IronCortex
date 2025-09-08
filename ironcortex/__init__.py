@@ -23,3 +23,4 @@ from .data import (
     TextDiffusionDataset as TextDiffusionDataset,
     TextDiffusionSample as TextDiffusionSample,
 )
+from .visualization import TrainVisualizer as TrainVisualizer
