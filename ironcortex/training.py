@@ -97,6 +97,7 @@ def train_step(
             else torch.zeros(0, model.R, model.d, device=device)
         )
 
+        hebbian_updates = []
         for r in range(model.R):
             hpos = Hpos_stack[:, r, :] if Hpos_stack.numel() > 0 else None
             hneg = Hneg_stack[:, r, :] if Hneg_stack.numel() > 0 else None
@@ -119,16 +120,15 @@ def train_step(
                 model.reg_ff[r].update_tau(gpos.detach())
             gain = float((gpos - gneg).detach().item())
             model.gate.update_gain(r, gain)
-            # Local Hebbian update: nudge router edges when region gains are positive
+            # Delay Hebbian router updates until after autograd to avoid
+            # in-place weight modifications on tensors that require grad.
             if gain > 0 and bool(reg_mask_p[r]):
                 post = H_pos[r].detach()
-                with torch.no_grad():
-                    for s in model.neighbors[r]:
-                        if not bool(reg_mask_p[s]):
-                            continue
-                        pre = H_pos[s].detach()
-                        W = model.router.W_edge[f"{s}->{r}"].weight
-                        W.add_(1e-3 * gain * torch.outer(post, pre))
+                for s in model.neighbors[r]:
+                    if not bool(reg_mask_p[s]):
+                        continue
+                    pre = H_pos[s].detach()
+                    hebbian_updates.append((r, s, gain, post, pre))
 
         # -------- RTD loss (on negative stream motor state) --------
         motor_pos = H_pos[model.io_idxs["motor"]]
@@ -185,6 +185,12 @@ def train_step(
         )
 
         total.backward()
+        # Apply accumulated Hebbian updates now that gradients are computed.
+        with torch.no_grad():
+            for r, s, gain, post, pre in hebbian_updates:
+                W = model.router.W_edge[f"{s}->{r}"].weight
+                W.add_(1e-3 * gain * torch.outer(post, pre))
+        hebbian_updates.clear()
         total_loss_val += float(total.detach().item())
 
         total_ff += float(ff_loss.detach().item())
