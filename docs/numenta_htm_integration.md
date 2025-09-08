@@ -24,11 +24,10 @@ bringing ideas from Numenta's Thousand Brains Theory and Hierarchical Temporal M
   regions to encourage exploration, similar to HTM column bursting.
 
 ## 3. Enable Multi‑Region Consensus
-- **Distributed token prediction** – Give multiple active regions lightweight prediction heads and combine their logits
-  instead of relying solely on the motor region's output. Currently, the motor state alone feeds the language
-  model head[model-lmhead].
-- **Workspace for voting** – Use the global `Workspace` as a blackboard where active regions write summaries that a
-  decoder can read to produce a consensus prediction.
+- **Distributed token prediction** – Implemented by equipping each active region with a lightweight linear token head
+  and averaging their logits with the motor region's head[model-lmhead].
+- **Workspace for voting** – Active region states are written to the global `Workspace`, forming a shared summary that
+  the decoder uses for consensus prediction.
 
 ## 4. Enhance Online Plasticity
 - **Local Hebbian updates** – Augment gradient-based learning with small Hebbian nudges when regions succeed, echoing HTM's
@@ -46,5 +45,5 @@ learning framework.
 [region-kwta]: ../ironcortex/region.py#L84-L85
 [gate-homeo]: ../ironcortex/gate.py#L89-L93
 [region-fastweights]: ../ironcortex/region.py#L31-L32
-[model-lmhead]: ../ironcortex/model.py#L148-L158
+[model-lmhead]: ../ironcortex/model.py#L154-L176
 [training-ff]: ../ironcortex/training.py#L100-L121

@@ -59,6 +59,9 @@ class CortexReasoner(nn.Module):
         # Heads & workspace
         self.rtdd = RTDHead(self.d)
         self.lm_head = TokenHead_MFS(self.d, self.V, Kf=8)
+        self.region_heads = nn.ModuleList(
+            [nn.Linear(self.d, self.V) for _ in range(self.R)]
+        )
         self.work = Workspace(self.d, N_slots=8)
         self.plan = PlannerHead(self.d)
         self.critic = CriticHead(self.d)
@@ -150,14 +153,27 @@ class CortexReasoner(nn.Module):
 
         # --- 4) Heads on motor & workspace ---
         motor_state = H_cur[self.io_idxs["motor"]]
-        # workspace summary: mean over active regions (simple choice)
         active = reg_mask.nonzero(as_tuple=False).squeeze(-1)
-        if active.numel() > 0:
-            ws_state = H_cur[active].mean(dim=0)
+
+        # Active regions write their states to the workspace
+        delta_slots = torch.zeros_like(self.work.slots)
+        n_write = min(active.numel(), delta_slots.shape[0])
+        if n_write > 0:
+            delta_slots[:n_write] = H_cur[active[:n_write]]
+            self.work.write(delta_slots)
+            ws_state = self.work.slots.mean(dim=0)
         else:
             ws_state = torch.zeros(self.d, device=device)
 
-        logits, aux = self.lm_head(motor_state)
+        # Token predictions from motor and other active regions
+        logits_list = []
+        motor_logits, _ = self.lm_head(motor_state)
+        logits_list.append(motor_logits)
+        for r in active.tolist():
+            if r == self.io_idxs["motor"]:
+                continue
+            logits_list.append(self.region_heads[r](H_cur[r]))
+        logits = torch.stack(logits_list, dim=0).mean(dim=0)
         rtd_logits = self.rtdd(motor_state)
 
         return H_cur, reg_mask, logits, rtd_logits, ws_state, motor_state
