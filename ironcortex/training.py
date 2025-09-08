@@ -54,6 +54,8 @@ def train_step(
     total_critic = 0.0
     total_verify = 0.0
     total_ce = 0.0
+    total_E_pos = 0.0
+    total_E_neg = 0.0
 
     optimizer.zero_grad()
     total_loss_val = 0.0
@@ -159,6 +161,8 @@ def train_step(
         E_pos = model.verify(motor_pos.detach(), y_pos)
         E_neg = model.verify(motor_neg.detach(), y_neg)
         verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
+        total_E_pos += float(E_pos.detach().mean().item())
+        total_E_neg += float(E_neg.detach().mean().item())
 
         # -------- Total --------
         total = (
@@ -189,6 +193,8 @@ def train_step(
         "denoise": total_denoise / B,
         "critic": total_critic / B,
         "verify": total_verify / B,
+        "E_pos": total_E_pos / B,
+        "E_neg": total_E_neg / B,
         "ce": total_ce / B,
         "total": total_loss_val / B,
     }
