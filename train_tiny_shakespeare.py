@@ -1,6 +1,7 @@
 import argparse
 import random
 from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 
@@ -18,6 +19,8 @@ from ironcortex import (
     train_step,
     TrainVisualizer,
     HexStateVisualizer,
+    save_checkpoint,
+    load_checkpoint,
 )
 
 
@@ -37,6 +40,8 @@ class TrainHyperParams:
     gen_prompt: str = "ROMEO:"
     visualize: bool = False
     hex_visualize: bool = False
+    ckpt_path: str | None = None
+    ckpt_interval: int = 0
 
 
 def build_model(device: torch.device) -> CortexReasoner:
@@ -56,6 +61,9 @@ def train(
     header = "step,ff,rtd,denoise,critic,verify,E_pos,E_neg,xent,ppl,total,gain_mean,tau_mean"
     print(header)
     step = 0
+    if hparams.ckpt_path and Path(hparams.ckpt_path).exists():
+        step = load_checkpoint(hparams.ckpt_path, model, optimizer, map_location=device)
+        print(f"loaded checkpoint from {hparams.ckpt_path} at step {step}")
     vis = None
     if hparams.visualize:
         try:
@@ -102,8 +110,18 @@ def train(
                 txt = bytes(sample.tolist()).decode("utf-8", errors="ignore")
                 print("=== Sample Generation ===")
                 print(txt)
+            if (
+                hparams.ckpt_path
+                and hparams.ckpt_interval
+                and step % hparams.ckpt_interval == 0
+            ):
+                save_checkpoint(model, optimizer, step, hparams.ckpt_path)
             if hparams.max_steps and step >= hparams.max_steps:
+                if hparams.ckpt_path:
+                    save_checkpoint(model, optimizer, step, hparams.ckpt_path)
                 return
+    if hparams.ckpt_path:
+        save_checkpoint(model, optimizer, step, hparams.ckpt_path)
 
 
 def run_generation(
@@ -146,13 +164,29 @@ def main() -> None:
         dest="hex_visualize",
         help="Enable hex region state visualizer",
     )
+    parser.add_argument(
+        "--ckpt-path",
+        type=str,
+        default=None,
+        help="Path to save/load training checkpoints",
+    )
+    parser.add_argument(
+        "--ckpt-interval",
+        type=int,
+        default=0,
+        help="Steps between checkpoint saves (0 disables periodic saving)",
+    )
     args = parser.parse_args()
     seed = args.seed if args.seed is not None else random.randrange(2**32)
     random.seed(seed)
     torch.manual_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     hparams = TrainHyperParams(
-        seed=seed, visualize=args.visualize, hex_visualize=args.hex_visualize
+        seed=seed,
+        visualize=args.visualize,
+        hex_visualize=args.hex_visualize,
+        ckpt_path=args.ckpt_path,
+        ckpt_interval=args.ckpt_interval,
     )
     tokens = load_tiny_shakespeare("data")
     n_seq = len(tokens) // hparams.seq_len

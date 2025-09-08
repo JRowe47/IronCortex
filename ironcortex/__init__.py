@@ -26,3 +26,7 @@ from .data import (
 from .visualization import TrainVisualizer as TrainVisualizer
 from .hex_visualizer import HexStateVisualizer as HexStateVisualizer
 from .sdr import SparseTokenEncoder as SparseTokenEncoder
+from .checkpoint import (
+    save_checkpoint as save_checkpoint,
+    load_checkpoint as load_checkpoint,
+)
