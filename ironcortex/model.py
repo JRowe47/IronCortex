@@ -9,6 +9,7 @@ from .utils import (
     should_halt,
     goodness,
     context_logprob,
+    schedule_burst,
     RMSNorm,
     RegionFFState,
 )
@@ -93,6 +94,8 @@ class CortexReasoner(nn.Module):
         focus_map: torch.Tensor,  # [T] Bool
         H_prev: torch.Tensor,  # [R,d]
         reg_mask_prev: torch.Tensor,  # [R] Bool
+        u_mean: float,
+        burst_extra_k: int,
     ):
         """One inner micro-step: gate -> route -> active region updates -> heads."""
         device = H_prev.device
@@ -116,9 +119,12 @@ class CortexReasoner(nn.Module):
 
         # --- 1) Gate selection ---
         H_hint = H_prev
-        scores = self.gate.score_regions(H_hint, focus_map, u_mean=0.0)
+        scores = self.gate.score_regions(H_hint, focus_map, u_mean=u_mean)
         reg_mask = self.gate.select_k(
-            scores, k_active=self.cfg.k_active, burst_extra_k=0, io_force_on=True
+            scores,
+            k_active=self.cfg.k_active,
+            burst_extra_k=burst_extra_k,
+            io_force_on=True,
         )
 
         # --- 2) Router messages from previously active regions ---
@@ -196,6 +202,7 @@ class CortexReasoner(nn.Module):
 
             # Gate bias by value-of-compute:
             self.gate.value_bias = v_hat
+            burst_extra = schedule_burst(u_mean, v_hat, self.R)
 
             # Try each branch
             for b in range(self.cfg.B_br):
@@ -212,6 +219,8 @@ class CortexReasoner(nn.Module):
                         focus_map=focus_map,
                         H_prev=H_prev_b,
                         reg_mask_prev=reg_mask_prev_b,
+                        u_mean=u_mean,
+                        burst_extra_k=burst_extra,
                     )
                 )
 
