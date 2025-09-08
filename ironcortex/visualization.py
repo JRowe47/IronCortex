@@ -10,13 +10,20 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping
 
 import matplotlib
+import warnings
 
 
 def _ensure_gui_backend() -> None:
-    """Switch to a GUI backend if running under an inline backend."""
+    """Switch to a GUI backend when running headless."""
 
     backend = matplotlib.get_backend().lower()
-    if "matplotlib_inline" in backend:
+    if "matplotlib_inline" in backend or backend in {
+        "agg",
+        "pdf",
+        "ps",
+        "svg",
+        "cairo",
+    }:
         for candidate in ("TkAgg", "QtAgg", "GTK3Agg"):
             try:  # pragma: no cover - backend availability depends on system
                 matplotlib.use(candidate)
@@ -82,6 +89,12 @@ class TrainVisualizer:
                 plt.show(block=False)
             except Exception:
                 self.interactive = False
+        else:  # pragma: no cover - used for user feedback in headless setups
+            warnings.warn(
+                "Matplotlib is using a non-interactive backend; training curves"
+                " will not be displayed.",
+                RuntimeWarning,
+            )
 
     def update(
         self, step: int, metrics: Mapping[str, float], eval_metrics: Mapping[str, float]
