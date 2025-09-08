@@ -7,13 +7,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Sequence
+import warnings
 
 import numpy as np
+from .visualization import _is_interactive_backend
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 from .wiring import hex_axial_coords
-from .visualization import _is_interactive_backend
 
 
 @dataclass
@@ -46,6 +47,12 @@ class HexStateVisualizer:
                 plt.show(block=False)
             except Exception:
                 self.interactive = False
+        else:  # pragma: no cover - used for user feedback in headless setups
+            warnings.warn(
+                "Matplotlib is using a non-interactive backend; hex state"
+                " plots will not be displayed.",
+                RuntimeWarning,
+            )
 
     def _axial_to_cart(self, q: float, r: float) -> tuple[float, float]:
         x = self.size * np.sqrt(3) * (q + r / 2)
