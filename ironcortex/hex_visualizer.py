@@ -11,8 +11,16 @@ import warnings
 
 import numpy as np
 from .visualization import _is_interactive_backend
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+# Matplotlib is an optional dependency for hex state visualization. Import it
+# lazily so the rest of the package can be used in environments without the
+# library (e.g. during headless testing).
+try:  # pragma: no cover - availability depends on runtime environment
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+except Exception:  # pragma: no cover - allows import without matplotlib
+    plt = None
+    Poly3DCollection = None
 
 from .wiring import hex_axial_coords
 
@@ -34,6 +42,8 @@ class HexStateVisualizer:
     size: float = 1.0
 
     def __post_init__(self) -> None:
+        if plt is None or Poly3DCollection is None:
+            raise RuntimeError("matplotlib is required for HexStateVisualizer")
         self.coords = hex_axial_coords(self.R).tolist()
         self.fig = plt.figure()
         self.ax = self.fig.add_subplot(111, projection="3d")
@@ -77,8 +87,11 @@ class HexStateVisualizer:
 
         try:
             self.ax.collections.clear()
-        except AttributeError:
-            del self.ax.collections[:]
+        except Exception:
+            # Some matplotlib backends expose "collections" as an ArtistList
+            # whose ``clear``/deletion operations raise ``TypeError``. Replace
+            # the container wholesale to avoid these issues.
+            self.ax.collections = type(self.ax.collections)()
         for (q, r), s in zip(self.coords, states):
             x, y = self._axial_to_cart(q, r)
             outer = Poly3DCollection(
