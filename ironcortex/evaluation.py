@@ -26,20 +26,16 @@ def evaluate_perplexity(
     model.eval()
     tokens = tokens.to(device)
     B, T = tokens.shape
-    focus = torch.zeros(B, T, dtype=torch.bool, device=device)
-    total_nll = 0.0
-    total_tokens = 0
+    if T < 2:
+        raise ValueError("tokens must have length >= 2 for evaluation")
 
-    for t in range(T - 1):
-        ctx = tokens[:, : t + 1]
-        targets = tokens[:, t + 1]
-        _, _, logits, _ = model.reasoning_loop_batch(
-            ctx, model.cfg.K_inner, focus[:, : t + 1]
-        )
-        log_probs = F.log_softmax(logits, dim=-1)
-        total_nll += F.nll_loss(log_probs, targets, reduction="sum").item()
-        total_tokens += targets.numel()
-
-    cross_entropy = total_nll / max(1, total_tokens)
-    perplexity = float(math.exp(cross_entropy))
-    return {"cross_entropy": cross_entropy, "perplexity": perplexity}
+    # Evaluate only the final next-token prediction to avoid O(T^2) work.
+    # This provides a lightweight approximation sufficient for logging.
+    ctx = tokens[:, :-1]
+    targets = tokens[:, -1]
+    focus = torch.zeros(B, T - 1, dtype=torch.bool, device=device)
+    _, _, logits, _ = model.reasoning_loop_batch(ctx, model.cfg.K_inner, focus)
+    log_probs = F.log_softmax(logits, dim=-1)
+    ce = F.nll_loss(log_probs, targets, reduction="mean").item()
+    ppl = float(math.exp(ce))
+    return {"cross_entropy": ce, "perplexity": ppl}
