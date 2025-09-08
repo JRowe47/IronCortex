@@ -13,7 +13,7 @@ class Thinker:
         verifier: EnergyVerifierHead,
         max_steps: int = 3,
         alpha: float | tuple[float, float] = (2e-2, 5e-2),
-        sigma: float = 0.0,
+        sigma: float = 0.01,
         restarts: int = 1,
     ):
         self.verifier = verifier

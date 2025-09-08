@@ -33,6 +33,7 @@ class Gate(nn.Module):
         self.w3 = 0.5
         self.w4 = 0.2
         self.w5 = 0.5
+        self.w6 = 0.3
         self.value_bias = 0.0  # set externally each step
 
     def overlap_with_focus(self, focus_mask: Optional[torch.Tensor]) -> torch.Tensor:
@@ -59,6 +60,7 @@ class Gate(nn.Module):
             + self.w3 * focus_boost
             - self.w4 * self.homeo
             + self.w5 * float(self.value_bias)
+            + self.w6 * float(u_mean)
         )
         return scores
 
