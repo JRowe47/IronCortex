@@ -11,8 +11,8 @@ from ironcortex import (
     LossWeights,
     generate,
     diffusion_generate,
-    hex_axial_coords_from_grid,
-    hex_neighbors_grid,
+    hex_axial_coords,
+    hex_neighbors,
     load_tiny_shakespeare,
     train_step,
 )
@@ -33,14 +33,9 @@ class TrainHyperParams:
 
 
 def build_model(device: torch.device) -> CortexReasoner:
-    # The wiring helpers assume the region count forms a perfect square so that
-    # regions can be arranged on a 2D grid. Using a non-square value (e.g. 32)
-    # caused `hex_neighbors_grid` to raise an assertion error. Set ``R`` to a
-    # square number (36 = 6x6 grid) to make the demo run.
     cfg = CortexConfig(R=36, d=256, V=256, K_inner=8, B_br=2, k_active=8, max_T=512)
-    side = int(cfg.R**0.5)
-    neighbors = hex_neighbors_grid(cfg.R, side)
-    reg_coords = hex_axial_coords_from_grid(cfg.R, side)
+    neighbors = hex_neighbors(cfg.R)
+    reg_coords = hex_axial_coords(cfg.R)
     io_idxs = {"sensor": 0, "motor": cfg.R - 1}
     model = CortexReasoner(neighbors, reg_coords, io_idxs, cfg).to(device)
     return model

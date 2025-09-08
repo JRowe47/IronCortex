@@ -10,8 +10,8 @@ from ironcortex import (
     LossWeights,
     diffusion_generate,
     generate,
-    hex_axial_coords_from_grid,
-    hex_neighbors_grid,
+    hex_axial_coords,
+    hex_neighbors,
     train_step,
 )
 
@@ -20,9 +20,8 @@ def test_smoke():
     torch.manual_seed(0)
     random.seed(0)
     cfg = CortexConfig(R=4, d=32, V=20, K_inner=2, B_br=1, k_active=2, max_T=64)
-    side = int(cfg.R**0.5)
-    neighbors = hex_neighbors_grid(cfg.R, side)
-    reg_coords = hex_axial_coords_from_grid(cfg.R, side)
+    neighbors = hex_neighbors(cfg.R)
+    reg_coords = hex_axial_coords(cfg.R)
     io_idxs = {"sensor": 0, "motor": cfg.R - 1}
     device = torch.device("cpu")
     model = CortexReasoner(neighbors, reg_coords, io_idxs, cfg).to(device)
@@ -47,9 +46,8 @@ def test_router_fourier_bias_device():
     torch.manual_seed(0)
     random.seed(0)
     cfg = CortexConfig(R=4, d=32, V=20, K_inner=2, B_br=1, k_active=2, max_T=64)
-    side = int(cfg.R**0.5)
-    neighbors = hex_neighbors_grid(cfg.R, side)
-    reg_coords = hex_axial_coords_from_grid(cfg.R, side)
+    neighbors = hex_neighbors(cfg.R)
+    reg_coords = hex_axial_coords(cfg.R)
     io_idxs = {"sensor": 0, "motor": cfg.R - 1}
     device = torch.device("cuda")
     model = CortexReasoner(neighbors, reg_coords, io_idxs, cfg).to(device)

@@ -264,7 +264,7 @@ If such components are added, document their usage and locations here.
 - Modify `generation.py` to experiment with new confidence strategies or routing heuristics.
 
 #### Wiring and Geometry
-- Use `hex_neighbors_grid()` and `hex_axial_coords_from_grid()` from `wiring.py` to build region graphs.
+- Use `hex_neighbors()` and `hex_axial_coords()` from `wiring.py` to build region graphs.
 - For true hex axial layouts or alternative topologies, add new helpers here.
 
 #### Adding New Modules
