@@ -10,13 +10,31 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping
 
 import matplotlib
-import matplotlib.pyplot as plt
+
+
+def _ensure_gui_backend() -> None:
+    """Switch to a GUI backend if running under an inline backend."""
+
+    backend = matplotlib.get_backend().lower()
+    if "matplotlib_inline" in backend:
+        for candidate in ("TkAgg", "QtAgg", "GTK3Agg"):
+            try:  # pragma: no cover - backend availability depends on system
+                matplotlib.use(candidate)
+                break
+            except Exception:  # pragma: no cover - fallback to default backend
+                continue
+
+
+_ensure_gui_backend()
+import matplotlib.pyplot as plt  # noqa: E402
 
 
 def _is_interactive_backend() -> bool:
     """Return True if matplotlib is using an interactive backend."""
 
     backend = matplotlib.get_backend().lower()
+    if "matplotlib_inline" in backend:
+        return False
     return backend not in {"agg", "pdf", "ps", "svg", "cairo"}
 
 

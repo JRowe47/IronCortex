@@ -1,4 +1,8 @@
-from ironcortex.visualization import TrainVisualizer
+import matplotlib
+
+matplotlib.use("Agg")
+
+from ironcortex.visualization import TrainVisualizer, _is_interactive_backend
 
 
 def test_visualizer_update():
@@ -22,3 +26,10 @@ def test_visualizer_update():
         "tau_mean": 0.2,
     }
     viz.update(1, metrics, eval_metrics)
+
+
+def test_inline_backend_detection(monkeypatch):
+    monkeypatch.setattr(
+        matplotlib, "get_backend", lambda: "module://matplotlib_inline.backend_inline"
+    )
+    assert not _is_interactive_backend()
