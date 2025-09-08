@@ -40,12 +40,8 @@ class TrainVisualizer:
             self.axes_map = {
                 "loss": ["ff", "rtd", "denoise", "critic", "verify", "total"],
                 "energy": ["E_pos", "E_neg"],
-                "eval": [
-                    "cross_entropy",
-                    "perplexity",
-                    "gain_mean",
-                    "tau_mean",
-                ],
+                "eval": ["cross_entropy", "gain_mean", "tau_mean"],
+                "perplexity": ["perplexity"],
             }
         n_axes = len(self.axes_map)
         self.fig, axes = plt.subplots(n_axes, 1, figsize=(8, 2.5 * n_axes))

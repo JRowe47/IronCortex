@@ -3,6 +3,8 @@ from ironcortex.visualization import TrainVisualizer
 
 def test_visualizer_update():
     viz = TrainVisualizer()
+    assert "perplexity" not in viz.axes_map["eval"]
+    assert viz.axes_map["perplexity"] == ["perplexity"]
     metrics = {
         "ff": 0.1,
         "rtd": 0.2,
