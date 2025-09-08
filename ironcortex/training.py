@@ -53,7 +53,7 @@ def train_step(
     total_denoise = 0.0
     total_critic = 0.0
     total_verify = 0.0
-    total_ce = 0.0
+    total_ce_last = 0.0
     total_E_pos = 0.0
     total_E_neg = 0.0
 
@@ -81,6 +81,7 @@ def train_step(
         logits_pos, logits_neg = logits_all
         traces_pos, traces_neg = traces_all
 
+        # Cross-entropy of the final token for quick monitoring
         ce_loss = F.cross_entropy(logits_pos.unsqueeze(0), tokens[-1].unsqueeze(0))
 
         # -------- FF per-region losses --------
@@ -181,7 +182,7 @@ def train_step(
         total_denoise += float(denoise_loss.detach().item())
         total_critic += float(critic_loss.detach().item())
         total_verify += float(verifier_loss.detach().item())
-        total_ce += float(ce_loss.detach().item())
+        total_ce_last += float(ce_loss.detach().item())
 
         model.gate.update_homeo(reg_mask_n)
 
@@ -195,6 +196,6 @@ def train_step(
         "verify": total_verify / B,
         "E_pos": total_E_pos / B,
         "E_neg": total_E_neg / B,
-        "ce": total_ce / B,
+        "ce_last": total_ce_last / B,
         "total": total_loss_val / B,
     }

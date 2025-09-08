@@ -7,6 +7,7 @@ from .energy import (
     energy_descent_step as energy_descent_step,
 )
 from .ff_energy import ff_energy_loss as ff_energy_loss, ff_step as ff_step
+from .evaluation import evaluate_perplexity as evaluate_perplexity
 from .thinking import Thinker as Thinker
 from .diffusion import (
     DiffusionConfig as DiffusionConfig,
