@@ -16,6 +16,7 @@ from ironcortex import (
     hex_neighbors,
     load_tiny_shakespeare,
     train_step,
+    TrainVisualizer,
 )
 
 
@@ -31,6 +32,9 @@ class TrainHyperParams:
     gen_tokens: int = 100
     diffusion_steps: int = 4
     seed: int | None = None
+    gen_interval: int = 20
+    gen_prompt: str = "ROMEO:"
+    visualize: bool = True
 
 
 def build_model(device: torch.device) -> CortexReasoner:
@@ -50,6 +54,10 @@ def train(
     header = "step,ff,rtd,denoise,critic,verify,E_pos,E_neg,xent,ppl,total,gain_mean,tau_mean"
     print(header)
     step = 0
+    vis = TrainVisualizer() if hparams.visualize else None
+    prompt_ids = torch.tensor(
+        list(hparams.gen_prompt.encode("utf-8")), dtype=torch.long, device=device
+    )
     for epoch in range(1, hparams.epochs + 1):
         for batch in loader:
             step += 1
@@ -67,6 +75,17 @@ def train(
                     f"{gain_mean:.4f},{tau_mean:.4f}"
                 )
                 print(line)
+                if vis is not None:
+                    vis.update(
+                        step,
+                        {**metrics, "gain_mean": gain_mean, "tau_mean": tau_mean},
+                        eval_metrics,
+                    )
+            if hparams.gen_interval and step % hparams.gen_interval == 0:
+                sample = generate(model, prompt_ids, T_total=hparams.gen_tokens)
+                txt = bytes(sample.tolist()).decode("utf-8", errors="ignore")
+                print("=== Sample Generation ===")
+                print(txt)
             if hparams.max_steps and step >= hparams.max_steps:
                 return
 
@@ -118,7 +137,7 @@ def main() -> None:
     print(f"model parameters: {n_params/1e6:.2f}M")
     print(f"using seed {seed}")
     train(model, loader, hparams, device)
-    run_generation(model, "ROMEO:", hparams)
+    run_generation(model, hparams.gen_prompt, hparams)
 
 
 if __name__ == "__main__":
