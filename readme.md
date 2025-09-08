@@ -1,27 +1,51 @@
-A fully wired reasoning-native cortex with sparse RWKV regions on a hex-like graph, a gate that allocates compute by predicted payoff (critic) and uncertainty, and an inner micro-loop (plan → route → update → verify) that runs every token.
+# Iron Cortex
 
-A Forward-Forward training routine that pushes per-region goodness on clean (positive) inputs above a learned threshold and below it for corrupted (negative) inputs, plus RTD (hard negatives) and denoising (mask‑predict) auxiliaries.
+Iron Cortex is a research project exploring a reasoning-native neural architecture. Sparse RWKV regions are arranged on a hex-like graph and a gate allocates compute based on predicted payoff and uncertainty. An inner micro-loop (plan → route → update → verify) runs every token. Training uses a forward-forward routine with reconstruction, replaced-token detection, denoising auxiliaries, and an energy-based verifier. Generation is mask-predict with energy refinement and optional diffusion-style loops.
 
-Iron RoPE integrated in three spots:
+## Recent Changes
 
-A LocalTokenMixer (bidirectional attention with RoPE + relative Fourier bias) that only updates masked/uncertain locations and reads from localized pseudo tokens (anchors).
+- Energy-based verifier head and forward-forward energy loss utilities.
+- Diffusion-style generation and gradient-based token refinement helpers.
+- Dataset loaders for Tiny Shakespeare and text diffusion samples.
 
-A small time rotation on RWKV v‑channels so the fast‑weight EMA can represent inner‑step (diffusion) “time” without breaking the w=exp(k) positivity.
+## Architecture
 
-A relative Fourier bias on router edges so message passing respects the hex geometry.
+```text
+ironcortex/
+├── __init__.py          # Public API exports
+├── config.py            # Model and training hyperparameters
+├── data.py              # Tiny Shakespeare downloader and diffusion dataset
+├── model.py             # CortexReasoner module and reasoning loop
+├── gate.py              # Gate (compute allocator) and Router
+├── region.py            # RWKV region cell with fast-weight updates
+├── iron_rope.py         # Local token mixer & positional encoding helpers
+├── heads.py             # Workspace plus Planner/Critic/Verifier/Token heads
+├── energy.py            # Energy-based verifier and gradient descent step
+├── ff_energy.py         # Forward-Forward energy loss helpers
+├── training.py          # Loss weights and train_step routine
+├── generation.py        # Mask-predict generator with energy descent
+├── diffusion.py         # Diffusion-style token generator
+├── corruptions.py       # Negative/denoising transformations
+├── thinking.py          # Gradient-based refinement helper
+├── utils.py             # RMSNorm, KWTA, batching, and other utilities
+└── wiring.py            # Hex grid neighborhood utilities
+tests/
+└── test_smoke.py        # Basic integration test
+train_tiny_shakespeare.py  # Example training script
+```
 
-A Workspace scratchpad and minimal Planner → Critic → Verifier heads to steer compute and gate bias by value.
+## Getting Started
 
-A mask‑predict generator that repeatedly focuses low‑confidence positions, runs the inner loop, and fills tokens.
+1. Install dependencies and run the smoke test:
 
-How to extend
+   ```bash
+   pytest
+   ```
 
-Replace the grid neighbors/coords with true hex axial layouts.
+2. Train on Tiny Shakespeare:
 
-Swap the simple TokenHead_MFS for your preferred multi‑facet or MoE head.
+   ```bash
+   python train_tiny_shakespeare.py
+   ```
 
-Strengthen Verifier targets using structural constraints specific to your domain.
-
-If you want strict FF (no cross-step backprop), wrap step outputs with detach() along cross‑time paths.
-
-Upcoming work: explore text generation with a diffusion paradigm and other non-standard model features.
+The repository is under active development. Replace the grid wiring with true hex axial layouts, swap in alternative token heads, and strengthen verifier targets to explore new reasoning behaviors.
