@@ -13,6 +13,7 @@ from .utils import (
     schedule_burst,
     RMSNorm,
     RegionFFState,
+    init_weights,
 )
 from .iron_rope import LocalTokenMixer
 from .heads import (
@@ -75,6 +76,7 @@ class CortexReasoner(nn.Module):
 
         # Per-region FF threshold τ
         self.reg_ff = nn.ModuleList([RegionFFState() for _ in range(self.R)])
+        self.apply(init_weights)
 
     def detach_state(self) -> None:
         """Detach stateful tensors to avoid cross-step autograd graphs."""

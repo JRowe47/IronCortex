@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from .utils import RMSNorm, KWTA
+from .utils import RMSNorm, KWTA, init_weights
 from .iron_rope import rope_rotate_pairs, make_freq_bank
 
 # 5) RWKV Region Cell (with Δt skip + time rotation on v)
@@ -39,6 +39,7 @@ class RWKVRegionCell(nn.Module):
             self.register_buffer(
                 "W_time", make_freq_bank(self.m_time, 1, kind="log", base=10000.0)
             )
+        self.apply(init_weights)
 
     def decay_vec(self) -> torch.Tensor:
         return torch.sigmoid(self.decay_param).pow(2.0)  # (0,1)
