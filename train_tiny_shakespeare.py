@@ -8,6 +8,7 @@ from ironcortex import (
     CortexReasoner,
     DiffusionConfig,
     LossWeights,
+    generate,
     diffusion_generate,
     hex_axial_coords_from_grid,
     hex_neighbors_grid,
@@ -25,7 +26,7 @@ class TrainHyperParams:
     log_interval: int = 10
     batch_size: int = 8
     seq_len: int = 256
-    gen_tokens: int = 128
+    gen_tokens: int = 100
     diffusion_steps: int = 4
 
 
@@ -48,7 +49,7 @@ def train(
 ) -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     lamb = LossWeights()
-    header = "step,ff,rtd,denoise,critic,verify,ce,total,gain_mean,tau_mean"
+    header = "step,ff,rtd,denoise,critic,verify,E_pos,E_neg,ce,total,gain_mean,tau_mean"
     print(header)
     step = 0
     for epoch in range(1, hparams.epochs + 1):
@@ -61,8 +62,9 @@ def train(
             if step % hparams.log_interval == 0:
                 line = (
                     f"{step},{metrics['ff']:.4f},{metrics['rtd']:.4f},{metrics['denoise']:.4f},"
-                    f"{metrics['critic']:.4f},{metrics['verify']:.4f},{metrics['ce']:.4f},"
-                    f"{metrics['total']:.4f},{gain_mean:.4f},{tau_mean:.4f}"
+                    f"{metrics['critic']:.4f},{metrics['verify']:.4f},{metrics['E_pos']:.4f},"
+                    f"{metrics['E_neg']:.4f},{metrics['ce']:.4f},{metrics['total']:.4f},"
+                    f"{gain_mean:.4f},{tau_mean:.4f}"
                 )
                 print(line)
             if hparams.max_steps and step >= hparams.max_steps:
@@ -77,11 +79,17 @@ def run_generation(
         list(prompt_text.encode("utf-8")), dtype=torch.long, device=device
     )
     diff_cfg = DiffusionConfig(steps=hparams.diffusion_steps)
-    out = diffusion_generate(
+    raw = diffusion_generate(
         model, prompt, T_total=hparams.gen_tokens, diff_cfg=diff_cfg
     )
-    text = bytes(out.tolist()).decode("utf-8", errors="ignore")
-    print(text)
+    raw_text = bytes(raw.tolist()).decode("utf-8", errors="ignore")
+    print("=== Raw Diffusion Output ===")
+    print(raw_text)
+
+    think = generate(model, prompt, T_total=hparams.gen_tokens)
+    think_text = bytes(think.tolist()).decode("utf-8", errors="ignore")
+    print("=== Energy-Based Thinking Output ===")
+    print(think_text)
 
 
 def main() -> None:
