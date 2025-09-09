@@ -171,7 +171,11 @@ def train_step(
         y_neg = F.softmax(logits_neg.detach(), dim=-1)
         E_pos = model.verify(motor_pos.detach(), y_pos)
         E_neg = model.verify(motor_neg.detach(), y_neg)
-        verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
+        if model.cfg.enable_ff_energy_alignment:
+            # Placeholder for future energy-alignment modifications
+            verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
+        else:
+            verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
         total_E_pos += float(E_pos.detach().mean().item())
         total_E_neg += float(E_neg.detach().mean().item())
 
