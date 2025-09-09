@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from ..constants import EPS_DIV, EPS_LOG, MAX_EXP
+
 
 class AdaptiveFilterAttention(nn.Module):
     """Simplified Adaptive Filter Attention.
@@ -47,7 +49,9 @@ class AdaptiveFilterAttention(nn.Module):
 
     def pairwise_precision(self, lags: torch.Tensor) -> torch.Tensor:
         """Simple exponential precision falloff with distance."""
-        return torch.exp(-self.eta_obs * lags * self.dt) / (self.sigma_proc + 1e-9)
+        return torch.exp((-self.eta_obs * lags * self.dt).clamp_max(MAX_EXP)) / (
+            self.sigma_proc + EPS_DIV
+        )
 
     def forward(
         self, x: torch.Tensor, mask: torch.Tensor | None = None
@@ -75,13 +79,16 @@ class AdaptiveFilterAttention(nn.Module):
         if mask is not None:
             if mask.dim() == 3:
                 mask = mask.unsqueeze(1)
-            scores = scores.masked_fill(mask == 0, -1e9)
+            scores = scores.masked_fill(mask == 0, -MAX_EXP)
         attn = F.softmax(scores, dim=-1)
         if mask is not None:
             attn = attn * mask
-            z = attn.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+            z = attn.sum(dim=-1, keepdim=True).clamp_min(EPS_DIV)
             attn = attn / z
-        self.last_attn_energy = (-(attn + 1e-9).log().mean()).detach()
+        self.last_attn_energy = (-(attn + EPS_LOG).log().mean()).detach()
+        self.last_attn_entropy = (
+            (-(attn + EPS_LOG).log() * attn).sum(dim=-1).mean().detach()
+        )
         out = torch.matmul(attn, v)  # [B,H,T,D]
         out = out.transpose(1, 2).contiguous().view(B, T, self.d_model)
         return self.out_proj(out)
@@ -93,4 +100,5 @@ class AdaptiveFilterAttention(nn.Module):
             "sigma_proc": float(self.sigma_proc.detach()),
             "eta_obs": float(self.eta_obs.detach()),
             "kernel_norm": float(self.last_kernel_norm),
+            "attn_entropy_mean": float(self.last_attn_entropy),
         }

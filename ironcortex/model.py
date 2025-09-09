@@ -26,6 +26,7 @@ from .heads import (
 from .energy import EnergyVerifierHead
 from .gate import Gate, Router
 from .region import RWKVRegionCell
+from .constants import EPS_DIV
 
 
 class CortexReasoner(nn.Module):
@@ -81,12 +82,14 @@ class CortexReasoner(nn.Module):
         self.work = Workspace(self.d, N_slots=8)
         self.plan = PlannerHead(self.d)
         self.critic = CriticHead(self.d)
-        self.verify = EnergyVerifierHead(
-            self.d,
-            self.V,
-            hidden=self.d,
-            use_attn_energy=cfg.enable_ff_energy_alignment,
-        )
+        self.verify = None
+        if cfg.enable_energy_verifier:
+            self.verify = EnergyVerifierHead(
+                self.d,
+                self.V,
+                hidden=self.d,
+                use_attn_energy=cfg.enable_ff_energy_alignment,
+            )
 
         # Local token mixer (Iron RoPE or Adaptive Filter Attention)
         self.local_mix = LocalTokenMixer(
@@ -112,14 +115,32 @@ class CortexReasoner(nn.Module):
     def telemetry(self) -> dict:
         """Collect telemetry from regions, router, and attention modules."""
         reg_stats = [r.telemetry() for r in self.regions]
+        state_var_mean = float(
+            torch.tensor([r["state_var"] for r in reg_stats]).mean().item()
+        )
+        state_prec_mean = float(
+            torch.tensor([r["state_prec"] for r in reg_stats]).mean().item()
+        )
+        surprise_mean = float(
+            torch.tensor([r["surprise_ema"] for r in reg_stats]).mean().item()
+        )
+        attn_entropy = 0.0
+        attn = getattr(self.local_mix, "attn", None)
+        afa_telem = None
+        if attn is not None and hasattr(attn, "telemetry"):
+            afa_telem = attn.telemetry()
+            attn_entropy = afa_telem.get("attn_entropy_mean", 0.0)
         metrics = {
             "regions": reg_stats,
             "routing_weight_mean": self.router.last_weight_mean,
-            "routing_weight_entropy": self.router.last_weight_entropy,
+            "router_weight_entropy": self.router.last_weight_entropy,
+            "state_var_mean": state_var_mean,
+            "state_prec_mean": state_prec_mean,
+            "surprise_ema": surprise_mean,
+            "attn_entropy_mean": attn_entropy,
         }
-        attn = getattr(self.local_mix, "attn", None)
-        if attn is not None and hasattr(attn, "telemetry"):
-            metrics["afa"] = attn.telemetry()
+        if afa_telem is not None:
+            metrics["afa"] = afa_telem
         return metrics
 
     def region_input(
@@ -149,7 +170,7 @@ class CortexReasoner(nn.Module):
         pos = torch.stack(
             [
                 torch.arange(T, device=device, dtype=torch.float32),
-                torch.arange(T, device=device, dtype=torch.float32) / (T + 1e-9),
+                torch.arange(T, device=device, dtype=torch.float32) / (T + EPS_DIV),
             ],
             dim=-1,
         ).unsqueeze(0)

@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from .model import CortexReasoner
 from .corruptions import corrupt
 from .ff_energy import ff_energy_loss
+from .constants import EPS_DIV
 
 
 def _detach_model_state(model: CortexReasoner) -> None:
@@ -90,39 +91,40 @@ def train_step(
     ff_loss = torch.tensor(0.0, device=device)
     hebbian_updates = []
     lam_s = model.cfg.surprise_lambda if model.cfg.enable_ff_energy_alignment else 0.0
-    for r in range(model.R):
-        hpos = H_pos[:, r, :]
-        hneg = H_neg[:, r, :]
-        gpos = hpos.pow(2).mean(dim=-1)
-        gneg = hneg.pow(2).mean(dim=-1)
-        surprise = model.regions[r].surprise_ema.to(device)
-        gpos_eff = gpos - lam_s * surprise
-        gneg_eff = gneg - lam_s * surprise
-        tau = model.reg_ff[r].tau
-        L_pos = F.softplus(-(gpos_eff - tau))
-        L_neg = F.softplus(+(gneg_eff - tau))
-        ff_loss = ff_loss + (L_pos + L_neg).mean()
+    if model.cfg.enable_forward_forward:
+        for r in range(model.R):
+            hpos = H_pos[:, r, :]
+            hneg = H_neg[:, r, :]
+            gpos = hpos.pow(2).mean(dim=-1)
+            gneg = hneg.pow(2).mean(dim=-1)
+            surprise = model.regions[r].surprise_ema.to(device)
+            gpos_eff = gpos - lam_s * surprise
+            gneg_eff = gneg - lam_s * surprise
+            tau = model.reg_ff[r].tau
+            L_pos = F.softplus(-(gpos_eff - tau))
+            L_neg = F.softplus(+(gneg_eff - tau))
+            ff_loss = ff_loss + (L_pos + L_neg).mean()
 
-        mean_prec = (model.regions[r].state_var + 1e-9).reciprocal().mean()
-        model.reg_ff[r].update_tau(
-            gpos_eff.detach().mean(),
-            mean_prec.detach(),
-            kappa=model.cfg.tau_kappa,
-            target_prec=model.cfg.tau_target_prec,
-        )
+            mean_prec = (model.regions[r].state_var + EPS_DIV).reciprocal().mean()
+            model.reg_ff[r].update_tau(
+                gpos_eff.detach().mean(),
+                mean_prec.detach(),
+                kappa=model.cfg.tau_kappa,
+                target_prec=model.cfg.tau_target_prec,
+            )
 
-        gain = float((gpos_eff - gneg_eff).detach().mean().item())
-        model.gate.update_gain(r, gain)
-        if gain > 0:
-            for b in range(B):
-                if not bool(reg_mask_p[b, r]):
-                    continue
-                post = H_pos[b, r].detach()
-                for s in model.neighbors[r]:
-                    if not bool(reg_mask_p[b, s]):
+            gain = float((gpos_eff - gneg_eff).detach().mean().item())
+            model.gate.update_gain(r, gain)
+            if gain > 0:
+                for b in range(B):
+                    if not bool(reg_mask_p[b, r]):
                         continue
-                    pre = H_pos[b, s].detach()
-                    hebbian_updates.append((r, s, gain, post, pre))
+                    post = H_pos[b, r].detach()
+                    for s in model.neighbors[r]:
+                        if not bool(reg_mask_p[b, s]):
+                            continue
+                        pre = H_pos[b, s].detach()
+                        hebbian_updates.append((r, s, gain, post, pre))
 
     # -------- RTD loss (on negative stream motor state) --------
     motor_pos = H_pos[:, model.io_idxs["motor"], :]
@@ -160,11 +162,16 @@ def train_step(
     critic_loss = F.mse_loss(v_hat, realized_delta_g)
 
     # -------- Verifier energy FF loss --------
-    y_pos = F.one_hot(clean_tokens[:, -1], num_classes=model.V).float()
-    y_neg = F.softmax(logits_neg.detach(), dim=-1)
-    E_pos = model.verify(motor_pos.detach(), y_pos, attn_energy=attn_energy_pos)
-    E_neg = model.verify(motor_neg.detach(), y_neg, attn_energy=attn_energy_neg)
-    verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
+    if model.verify is not None and model.cfg.enable_energy_verifier:
+        y_pos = F.one_hot(clean_tokens[:, -1], num_classes=model.V).float()
+        y_neg = F.softmax(logits_neg.detach(), dim=-1)
+        E_pos = model.verify(motor_pos.detach(), y_pos, attn_energy=attn_energy_pos)
+        E_neg = model.verify(motor_neg.detach(), y_neg, attn_energy=attn_energy_neg)
+        verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
+    else:
+        E_pos = torch.zeros_like(attn_energy_pos)
+        E_neg = torch.zeros_like(attn_energy_neg)
+        verifier_loss = torch.tensor(0.0, device=device)
 
     total = (
         λ.ff * ff_loss
