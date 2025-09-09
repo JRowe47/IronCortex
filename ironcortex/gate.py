@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .utils import nms_topk
 from .iron_rope import make_freq_bank, relative_fourier_bias
 
@@ -121,6 +122,20 @@ class Router(nn.Module):
                 edges[f"{s}->{r}"] = nn.Linear(d, d, bias=False)
         self.W_edge = nn.ModuleDict(edges)
 
+        # Content scoring projections
+        self.query_lin = nn.ModuleList([nn.Linear(d, d, bias=False) for _ in range(R)])
+        self.key_lin = nn.ModuleDict(
+            {k: nn.Linear(d, d, bias=False) for k in self.W_edge.keys()}
+        )
+
+        # Edge precision parameters (diag)
+        self.raw_P_edge = nn.ParameterDict(
+            {k: nn.Parameter(torch.zeros(d)) for k in self.W_edge.keys()}
+        )
+
+        # Storage for last routing weights (for interpretability)
+        self.last_weights: Dict[str, float] = {}
+
         # Fourier relative bias over region coordinates (2-D axial)
         self.fb_alpha = 0.1
         m_reg = 8
@@ -141,19 +156,25 @@ class Router(nn.Module):
         H: [R,d], reg_mask_prev: [R] bool, reg_coords: [R,2]
         Returns M: [R,d]
         """
-        if self.enable_precision_routed_messages:
-            # Placeholder: precision-weighted routing will augment this aggregation
-            pass
         device = H.device
         M = torch.zeros(self.R, self.d, device=device)
+        self.last_weights = {}
         # Prepare coordinate tensors for bias
         P = reg_coords.to(H.dtype).to(device).unsqueeze(0)  # [1,R,2]
         for r in range(self.R):
             acc = torch.zeros(self.d, device=device)
+            msgs = []
+            scores = []
+            robust = []
+            edge_keys = []
+            q_r = None
+            if self.enable_precision_routed_messages:
+                q_r = self.query_lin[r](H[r])
             for s in self.neighbors[r]:
                 if not bool(reg_mask_prev[s]):
                     continue
-                msg = self.W_edge[f"{s}->{r}"](H[s])
+                edge_key = f"{s}->{r}"
+                msg = self.W_edge[edge_key](H[s])
                 # Relative Fourier bias b(Δcoords) (scalar per edge)
                 b = relative_fourier_bias(
                     P[:, r : r + 1, :],
@@ -163,6 +184,31 @@ class Router(nn.Module):
                     self.beta_sin,
                     self.fb_scale,
                 )[0, 0, 0, 0]
-                acc = acc + (1.0 + self.fb_alpha * b) * msg
+                msg = (1.0 + self.fb_alpha * b) * msg
+                if self.enable_precision_routed_messages:
+                    k_sr = self.key_lin[edge_key](H[s])
+                    score = (q_r * k_sr).sum() / math.sqrt(self.d)
+                    resid = msg - H[r]
+                    P_edge = F.softplus(self.raw_P_edge[edge_key])
+                    mah = (resid.pow(2) * P_edge).sum()
+                    w = torch.exp(-0.5 * mah)
+                    msgs.append(msg)
+                    scores.append(score)
+                    robust.append(w)
+                    edge_keys.append(edge_key)
+                else:
+                    acc = acc + msg
+            if self.enable_precision_routed_messages:
+                if len(msgs) > 0:
+                    scores_t = torch.stack(scores)
+                    content_w = torch.softmax(scores_t, dim=0)
+                    robust_w = torch.stack(robust)
+                    w = content_w * robust_w
+                    Z = w.sum()
+                    if float(Z) > 0:
+                        w = w / Z
+                    for wi, msgi, key in zip(w, msgs, edge_keys):
+                        acc = acc + wi * msgi
+                        self.last_weights[key] = float(wi.detach())
             M[r] = acc
         return M
