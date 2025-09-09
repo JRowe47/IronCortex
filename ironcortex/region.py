@@ -1,6 +1,7 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .utils import RMSNorm, KWTA, init_weights
 from .iron_rope import rope_rotate_pairs, make_freq_bank
@@ -39,10 +40,13 @@ class RWKVRegionCell(nn.Module):
         self.v_lin = nn.Linear(d, d, bias=False)
         self.o_lin = nn.Linear(d, d, bias=False)
         decay = math.sqrt(init_decay)
-        init_val = torch.log(torch.tensor(decay / (1 - decay), dtype=torch.float32))
-        self.decay_param = nn.Parameter(torch.full((d,), init_val))
+        raw_init = math.log((1 / decay) - 1)
+        self.raw_decay = nn.Parameter(torch.full((d,), raw_init))
+        self.process_noise_param = nn.Parameter(torch.full((d,), -4.0))
+        self.obs_noise_param = nn.Parameter(torch.zeros(d))
         self.register_buffer("state_num", torch.zeros(d), persistent=False)
         self.register_buffer("state_den", torch.zeros(d), persistent=False)
+        self.register_buffer("state_var", torch.zeros(d), persistent=False)
         # Predictive trace for HTM-style temporal memory
         self.register_buffer("pred", torch.zeros(d), persistent=False)
         self.dt = 0
@@ -54,16 +58,28 @@ class RWKVRegionCell(nn.Module):
             )
         self.apply(init_weights)
 
-    def decay_vec(self) -> torch.Tensor:
-        return torch.sigmoid(self.decay_param).pow(2.0)  # (0,1)
+    def decay_rate(self) -> torch.Tensor:
+        return -F.softplus(self.raw_decay)
+
+    def decay(self, dt: int = 1) -> torch.Tensor:
+        return torch.exp(self.decay_rate() * dt)
+
+    def process_noise(self) -> torch.Tensor:
+        return F.softplus(self.process_noise_param)
+
+    def obs_noise(self) -> torch.Tensor:
+        return F.softplus(self.obs_noise_param)
 
     def fast_forward(self):
         if self.dt == 0:
             return
-        lam = self.decay_vec()  # [d]
-        mul = lam.pow(self.dt)
-        self.state_num = self.state_num * mul
-        self.state_den = self.state_den * mul
+        lam = self.decay(dt=self.dt)
+        self.state_num = self.state_num * lam
+        self.state_den = self.state_den * lam
+        if self.enable_adaptive_filter_dynamics:
+            self.state_var = (
+                self.state_var * lam.pow(2) + self.process_noise() * self.dt
+            )
         self.dt = 0
 
     def skip(self):
@@ -80,6 +96,7 @@ class RWKVRegionCell(nn.Module):
         self.state_num = self.state_num.detach()
         self.state_den = self.state_den.detach()
         self.pred = self.pred.detach()
+        self.state_var = self.state_var.detach()
 
     def step(self, x_in: torch.Tensor, step_pos_scalar: float) -> torch.Tensor:
         """One RWKV region update.
@@ -90,9 +107,6 @@ class RWKVRegionCell(nn.Module):
         # Clear predictive trace after use
         self.pred.zero_()
         self.fast_forward()
-        if self.enable_adaptive_filter_dynamics:
-            # Placeholder for adaptive filter dynamics on state_num/state_den
-            pass
         r = torch.sigmoid(self.r_lin(x))
         k = self.k_lin(x)  # keep unrotated (exp(k) >= 0)
         v = self.v_lin(x)
@@ -103,11 +117,28 @@ class RWKVRegionCell(nn.Module):
             c, s = torch.cos(Θ), torch.sin(Θ)
             v = rope_rotate_pairs(v, c, s, self.m_time)
 
-        lam = self.decay_vec()
+        lam = self.decay()
         w = torch.exp(k)  # positive
-        self.state_num = self.state_num * lam + w * v
-        self.state_den = self.state_den * lam + w
-        y = r * (self.state_num / (self.state_den + 1e-9))  # [d]
+
+        if self.enable_adaptive_filter_dynamics:
+            prior_num = self.state_num * lam
+            prior_den = self.state_den * lam
+            prior_var = self.state_var * lam.pow(2) + self.process_noise()
+            pred = prior_num / (prior_den + 1e-9)
+            msg = w * v
+            resid = msg - pred
+            obs_var = torch.exp(-k) * self.obs_noise()
+            gain = prior_var / (prior_var + obs_var + 1e-9)
+            new_state = pred + gain * resid
+            self.state_num = new_state * (prior_den + w)
+            self.state_den = prior_den + w
+            self.state_var = (1 - gain) * prior_var
+            y = r * new_state
+        else:
+            self.state_num = self.state_num * lam + w * v
+            self.state_den = self.state_den * lam + w
+            y = r * (self.state_num / (self.state_den + 1e-9))  # [d]
+
         h = x + self.o_lin(y)
         if self.enable_radial_tangential_updates:
             # Placeholder for radial–tangential updates on h
