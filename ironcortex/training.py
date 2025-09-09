@@ -9,6 +9,7 @@ from .model import CortexReasoner
 from .corruptions import corrupt
 from .utils import goodness
 from .ff_energy import ff_energy_loss
+from .constants import EPS_DIV
 
 
 def _detach_model_state(model: CortexReasoner) -> None:
@@ -99,51 +100,54 @@ def train_step(
         )
 
         hebbian_updates = []
-        for r in range(model.R):
-            hpos = Hpos_stack[:, r, :] if Hpos_stack.numel() > 0 else None
-            hneg = Hneg_stack[:, r, :] if Hneg_stack.numel() > 0 else None
+        if model.cfg.enable_forward_forward:
+            for r in range(model.R):
+                hpos = Hpos_stack[:, r, :] if Hpos_stack.numel() > 0 else None
+                hneg = Hneg_stack[:, r, :] if Hneg_stack.numel() > 0 else None
 
-            gpos = (
-                goodness(hpos)
-                if hpos is not None and hpos.numel() > 0
-                else torch.tensor(0.0, device=device)
-            )
-            gneg = (
-                goodness(hneg)
-                if hneg is not None and hneg.numel() > 0
-                else torch.tensor(0.0, device=device)
-            )
-            surprise = model.regions[r].surprise_ema.to(device)
-            lam_s = (
-                model.cfg.surprise_lambda
-                if model.cfg.enable_ff_energy_alignment
-                else 0.0
-            )
-            gpos_eff = gpos - lam_s * surprise
-            gneg_eff = gneg - lam_s * surprise
-            τ = model.reg_ff[r].tau
-            L_pos = F.softplus(-(gpos_eff - τ))
-            L_neg = F.softplus(+(gneg_eff - τ))
-            ff_loss = ff_loss + (L_pos + L_neg)
-            if hpos is not None and hpos.numel() > 0:
-                mean_prec = (model.regions[r].state_var + 1e-9).reciprocal().mean()
-                model.reg_ff[r].update_tau(
-                    gpos_eff.detach(),
-                    mean_prec.detach(),
-                    kappa=model.cfg.tau_kappa,
-                    target_prec=model.cfg.tau_target_prec,
+                gpos = (
+                    goodness(hpos)
+                    if hpos is not None and hpos.numel() > 0
+                    else torch.tensor(0.0, device=device)
                 )
-            gain = float((gpos_eff - gneg_eff).detach().item())
-            model.gate.update_gain(r, gain)
-            # Delay Hebbian router updates until after autograd to avoid
-            # in-place weight modifications on tensors that require grad.
-            if gain > 0 and bool(reg_mask_p[r]):
-                post = H_pos[r].detach()
-                for s in model.neighbors[r]:
-                    if not bool(reg_mask_p[s]):
-                        continue
-                    pre = H_pos[s].detach()
-                    hebbian_updates.append((r, s, gain, post, pre))
+                gneg = (
+                    goodness(hneg)
+                    if hneg is not None and hneg.numel() > 0
+                    else torch.tensor(0.0, device=device)
+                )
+                surprise = model.regions[r].surprise_ema.to(device)
+                lam_s = (
+                    model.cfg.surprise_lambda
+                    if model.cfg.enable_ff_energy_alignment
+                    else 0.0
+                )
+                gpos_eff = gpos - lam_s * surprise
+                gneg_eff = gneg - lam_s * surprise
+                τ = model.reg_ff[r].tau
+                L_pos = F.softplus(-(gpos_eff - τ))
+                L_neg = F.softplus(+(gneg_eff - τ))
+                ff_loss = ff_loss + (L_pos + L_neg)
+                if hpos is not None and hpos.numel() > 0:
+                    mean_prec = (
+                        (model.regions[r].state_var + EPS_DIV).reciprocal().mean()
+                    )
+                    model.reg_ff[r].update_tau(
+                        gpos_eff.detach(),
+                        mean_prec.detach(),
+                        kappa=model.cfg.tau_kappa,
+                        target_prec=model.cfg.tau_target_prec,
+                    )
+                gain = float((gpos_eff - gneg_eff).detach().item())
+                model.gate.update_gain(r, gain)
+                # Delay Hebbian router updates until after autograd to avoid
+                # in-place weight modifications on tensors that require grad.
+                if gain > 0 and bool(reg_mask_p[r]):
+                    post = H_pos[r].detach()
+                    for s in model.neighbors[r]:
+                        if not bool(reg_mask_p[s]):
+                            continue
+                        pre = H_pos[s].detach()
+                        hebbian_updates.append((r, s, gain, post, pre))
 
         # -------- RTD loss (on negative stream motor state) --------
         motor_pos = H_pos[model.io_idxs["motor"]]
@@ -182,17 +186,20 @@ def train_step(
         critic_loss = F.mse_loss(v_hat, realized_delta_g)
 
         # -------- Verifier energy FF loss --------
-        y_pos = F.one_hot(tokens[-1], num_classes=model.V).float()
-        y_neg = F.softmax(logits_neg.detach(), dim=-1)
-        E_pos = model.verify(motor_pos.detach(), y_pos, attn_energy=attn_energy_pos)
-        E_neg = model.verify(motor_neg.detach(), y_neg, attn_energy=attn_energy_neg)
-        if model.cfg.enable_ff_energy_alignment:
-            # Placeholder for future energy-alignment modifications
-            verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
-        else:
-            verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
-        total_E_pos += float(E_pos.detach().mean().item())
-        total_E_neg += float(E_neg.detach().mean().item())
+        verifier_loss = torch.tensor(0.0, device=device)
+        E_pos = torch.tensor(0.0, device=device)
+        E_neg = torch.tensor(0.0, device=device)
+        if model.cfg.enable_energy_verifier:
+            y_pos = F.one_hot(tokens[-1], num_classes=model.V).float()
+            y_neg = F.softmax(logits_neg.detach(), dim=-1)
+            E_pos = model.verify(motor_pos.detach(), y_pos, attn_energy=attn_energy_pos)
+            E_neg = model.verify(motor_neg.detach(), y_neg, attn_energy=attn_energy_neg)
+            if model.cfg.enable_ff_energy_alignment:
+                verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
+            else:
+                verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
+            total_E_pos += float(E_pos.detach().mean().item())
+            total_E_neg += float(E_neg.detach().mean().item())
 
         # -------- Total --------
         total = (
@@ -222,6 +229,10 @@ def train_step(
         model.gate.update_homeo(reg_mask_n)
 
     optimizer.step()
+    if not hasattr(model, "_debug_step"):
+        model._debug_step = 0
+    model._debug_step += 1
+    model.log_debug_metrics(model._debug_step)
 
     return {
         "ff": total_ff / B,

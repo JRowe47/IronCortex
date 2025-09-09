@@ -1,3 +1,7 @@
+"""Iron RoPE attention and token mixer utilities."""
+
+# TODO: read AGENTS.md completely
+
 import math
 from typing import Optional
 
@@ -6,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .utils import pad_batch, masked_mean, extract_spans, init_weights
+from .constants import EPS_DIV, EPS_LOG
 
 # 1) Iron RoPE: Fourier banks, rotary rotation, relative bias
 # ==========================================================
@@ -230,7 +235,7 @@ class IronRoPESelfAttention(nn.Module):
 
         # Softmax and (optional) dropout
         att = F.softmax(att, dim=-1)
-        self.last_attn_energy = (-(att + 1e-9).log().mean()).detach()
+        self.last_attn_energy = (-(att + EPS_LOG).log().mean()).detach()
         if dropout:
             att = self.adrop(att)
 
@@ -333,7 +338,7 @@ class LocalTokenMixer(nn.Module):
                 a_kind = torch.tensor(a_kind, dtype=torch.long, device=device)
                 a_emb = self.anch_embed[a_kind]  # [Na,d]
                 a_coords = torch.stack(
-                    [a_idx.to(torch.float32), a_idx.to(torch.float32) / (T + 1e-9)],
+                    [a_idx.to(torch.float32), a_idx.to(torch.float32) / (T + EPS_DIV)],
                     dim=-1,
                 )
                 x = torch.cat([x, a_emb], dim=0)

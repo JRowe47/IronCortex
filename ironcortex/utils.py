@@ -1,8 +1,13 @@
+"""Utility functions and modules."""
+
+# TODO: read AGENTS.md completely
+
 from typing import List, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .constants import EPS_LOG
 
 
 def init_weights(m):
@@ -123,7 +128,7 @@ def uncertainty_from_logits(logits: torch.Tensor) -> float:
 def context_logprob(logits: torch.Tensor) -> torch.Tensor:
     """Heuristic branch bonus: negative entropy of the logits."""
     p = F.softmax(logits, dim=-1)
-    ent = -(p * (p + 1e-9).log()).sum(dim=-1)
+    ent = -(p * (p + EPS_LOG).log()).sum(dim=-1)
     return -ent.mean()  # higher is better
 
 

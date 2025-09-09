@@ -1,0 +1,6 @@
+# TODO: read AGENTS.md completely
+
+EPS_DIV = 1e-8
+EPS_LOG = 1e-12
+MAX_EXP = 40.0
+MAX_NOISE = 10.0

@@ -2,18 +2,18 @@ TODO: read AGENTS.md completely
 
 # Project TODOs
 
-## Milestone 0 — Scaffolding, Flags & Safety Rails
+## Milestone 0 — Scaffolding, Flags & Safety Rails ✅
 
 Objective: Ensure all features are toggleable, safe, and observable.
 
 ### Tasks
-- Config flags plumbing
+- [x] Config flags plumbing
   - RG: enable_adaptive_filter_dynamics|enable_afa_attention|EnergyVerifier|Forward-Forward
   - Add flags to CFG + CLI parser + default config file. Ensure accessible in model/region/router/attention constructors.
-- Safety clamps & epsilons
+- [x] Safety clamps & epsilons
   - Clamp decay (decay_vec = -softplus(raw_decay)), noise scales (process_noise, obs_noise) with clamp_min(ε) and clamp_max(max_noise).
   - Centralize constants: EPS_DIV=1e-8, EPS_LOG=1e-12, MAX_EXP=40.0.
-- Telemetry hooks
+- [x] Telemetry hooks
   - Add per‑step logs: state_var_mean, state_prec_mean, surprise_ema, router_weight_entropy, attn_entropy_mean.
   - Gate logs by CFG.debug_metrics_every_n_steps.
 

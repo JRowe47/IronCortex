@@ -52,6 +52,9 @@ def build_model(
     enable_radial_tangential_updates: bool = False,
     enable_afa_attention: bool = False,
     enable_ff_energy_alignment: bool = False,
+    enable_forward_forward: bool = True,
+    enable_energy_verifier: bool = True,
+    debug_metrics_every_n_steps: int = 0,
 ) -> CortexReasoner:
     cfg = CortexConfig(
         R=36,
@@ -66,6 +69,9 @@ def build_model(
         enable_radial_tangential_updates=enable_radial_tangential_updates,
         enable_afa_attention=enable_afa_attention,
         enable_ff_energy_alignment=enable_ff_energy_alignment,
+        enable_forward_forward=enable_forward_forward,
+        enable_energy_verifier=enable_energy_verifier,
+        debug_metrics_every_n_steps=debug_metrics_every_n_steps,
     )
     neighbors = hex_neighbors(cfg.R)
     reg_coords = hex_axial_coords(cfg.R)
@@ -224,6 +230,22 @@ def main() -> None:
         action="store_true",
         help="Enable forward-forward energy alignment",
     )
+    parser.add_argument(
+        "--disable-forward-forward",
+        action="store_true",
+        help="Disable forward-forward training components",
+    )
+    parser.add_argument(
+        "--disable-energy-verifier",
+        action="store_true",
+        help="Disable energy verifier head",
+    )
+    parser.add_argument(
+        "--debug-metrics-every-n-steps",
+        type=int,
+        default=0,
+        help="Print debug telemetry every N steps (0 disables)",
+    )
     args = parser.parse_args()
     seed = args.seed if args.seed is not None else random.randrange(2**32)
     random.seed(seed)
@@ -250,6 +272,9 @@ def main() -> None:
         enable_radial_tangential_updates=args.enable_radial_tangential_updates,
         enable_afa_attention=args.enable_afa_attention,
         enable_ff_energy_alignment=args.enable_ff_energy_alignment,
+        enable_forward_forward=not args.disable_forward_forward,
+        enable_energy_verifier=not args.disable_energy_verifier,
+        debug_metrics_every_n_steps=args.debug_metrics_every_n_steps,
     )
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model parameters: {n_params/1e6:.2f}M")

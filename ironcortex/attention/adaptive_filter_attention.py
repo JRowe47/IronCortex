@@ -1,6 +1,11 @@
+"""Adaptive Filter Attention implementation."""
+
+# TODO: read AGENTS.md completely
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from ..constants import EPS_DIV, EPS_LOG
 
 
 class AdaptiveFilterAttention(nn.Module):
@@ -47,7 +52,7 @@ class AdaptiveFilterAttention(nn.Module):
 
     def pairwise_precision(self, lags: torch.Tensor) -> torch.Tensor:
         """Simple exponential precision falloff with distance."""
-        return torch.exp(-self.eta_obs * lags * self.dt) / (self.sigma_proc + 1e-9)
+        return torch.exp(-self.eta_obs * lags * self.dt) / (self.sigma_proc + EPS_DIV)
 
     def forward(
         self, x: torch.Tensor, mask: torch.Tensor | None = None
@@ -79,9 +84,9 @@ class AdaptiveFilterAttention(nn.Module):
         attn = F.softmax(scores, dim=-1)
         if mask is not None:
             attn = attn * mask
-            z = attn.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+            z = attn.sum(dim=-1, keepdim=True).clamp_min(EPS_DIV)
             attn = attn / z
-        self.last_attn_energy = (-(attn + 1e-9).log().mean()).detach()
+        self.last_attn_energy = (-(attn + EPS_LOG).log().mean()).detach()
         out = torch.matmul(attn, v)  # [B,H,T,D]
         out = out.transpose(1, 2).contiguous().view(B, T, self.d_model)
         return self.out_proj(out)

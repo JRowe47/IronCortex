@@ -1,3 +1,7 @@
+"""Top-level CortexReasoner model."""
+
+# TODO: read AGENTS.md completely
+
 from typing import Dict, List, Tuple
 
 import torch
@@ -26,6 +30,7 @@ from .heads import (
 from .energy import EnergyVerifierHead
 from .gate import Gate, Router
 from .region import RWKVRegionCell
+from .constants import EPS_DIV
 
 
 class CortexReasoner(nn.Module):
@@ -116,11 +121,31 @@ class CortexReasoner(nn.Module):
             "regions": reg_stats,
             "routing_weight_mean": self.router.last_weight_mean,
             "routing_weight_entropy": self.router.last_weight_entropy,
+            "attn_entropy": float(
+                getattr(self.local_mix, "last_energy", torch.tensor(0.0)).item()
+            ),
         }
         attn = getattr(self.local_mix, "attn", None)
         if attn is not None and hasattr(attn, "telemetry"):
             metrics["afa"] = attn.telemetry()
         return metrics
+
+    def log_debug_metrics(self, step: int) -> None:
+        """Print telemetry metrics every N steps based on config."""
+        every = getattr(self.cfg, "debug_metrics_every_n_steps", 0)
+        if every <= 0 or step % every != 0:
+            return
+        telem = self.telemetry()
+        sv = torch.tensor([r["state_var"] for r in telem["regions"]])
+        sp = torch.tensor([r["state_prec"] for r in telem["regions"]])
+        se = torch.tensor([r["surprise_ema"] for r in telem["regions"]])
+        msg = (
+            f"step {step}: state_var_mean={sv.mean():.4f}, "
+            f"state_prec_mean={sp.mean():.4f}, surprise_ema={se.mean():.4f}, "
+            f"router_weight_entropy={telem['routing_weight_entropy']:.4f}, "
+            f"attn_entropy_mean={telem['attn_entropy']:.4f}"
+        )
+        print(msg)
 
     def region_input(
         self, r: int, x_sensor: torch.Tensor, msg: torch.Tensor
@@ -149,7 +174,7 @@ class CortexReasoner(nn.Module):
         pos = torch.stack(
             [
                 torch.arange(T, device=device, dtype=torch.float32),
-                torch.arange(T, device=device, dtype=torch.float32) / (T + 1e-9),
+                torch.arange(T, device=device, dtype=torch.float32) / (T + EPS_DIV),
             ],
             dim=-1,
         ).unsqueeze(0)
