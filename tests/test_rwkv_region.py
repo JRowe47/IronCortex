@@ -57,3 +57,26 @@ def test_gradients_stable_random_run():
     for p in cell.parameters():
         if p.grad is not None:
             assert torch.all(torch.isfinite(p.grad))
+
+
+def test_direction_norm_unit_and_gradients():
+    torch.manual_seed(0)
+    d = 8
+    cell = RWKVRegionCell(d, m_time_pairs=0, enable_radial_tangential_updates=True)
+    x = torch.randn(d, requires_grad=True)
+    h = cell.step(x, 0.0)
+    assert torch.allclose(cell.last_dir.norm(), torch.tensor(1.0), atol=1e-5)
+    h.sum().backward()
+    for p in cell.parameters():
+        if p.grad is not None:
+            assert torch.all(torch.isfinite(p.grad))
+
+
+def test_radial_ema_reduces_spikes():
+    torch.manual_seed(0)
+    d = 8
+    cell = RWKVRegionCell(d, m_time_pairs=0, enable_radial_tangential_updates=True)
+    cell.step(torch.ones(d), 0.0)
+    spike = 10 * torch.ones(d)
+    cell.step(spike, 0.0)
+    assert cell.radius.item() < cell.last_norm.item()
