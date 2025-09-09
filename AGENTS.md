@@ -9,28 +9,29 @@ This file provides guidance to OpenAI Codex when working with code in this repos
 **🚨 MANDATORY: Every compaction or summarization must have a TODO inserted to read AGENTS.md completely.**
 
 ## Index
-- IMPORTANT: READ THIS ENTIRE FILE (lines 26-52)
-- CRITICAL RULES FOR SYSTEMATIC WORK (lines 53-129)
-- CORE ENGINEERING PRINCIPLES (lines 130-188)
-- APPLYING THESE PRINCIPLES (lines 189-197)
-- UPDATING THIS DOCUMENT (lines 198-214)
-- PROJECT-SPECIFIC GUIDANCE (lines 216-293)
-  - Project Overview (lines 218-224)
-  - Project Status (lines 225-229)
-  - Architecture (lines 230-249)
-  - Prompts and Tools (lines 250-254)
-  - Common Tasks (lines 255-274)
-  - Testing Commands (lines 275-284)
-    - Next Development Steps (lines 286-293)
+- IMPORTANT: READ THIS ENTIRE FILE (lines 27-53)
+- CRITICAL RULES FOR SYSTEMATIC WORK (lines 54-130)
+- CORE ENGINEERING PRINCIPLES (lines 131-189)
+- APPLYING THESE PRINCIPLES (lines 190-198)
+- UPDATING THIS DOCUMENT (lines 199-216)
+- PROJECT-SPECIFIC GUIDANCE (lines 217-298)
+  - Project Overview (lines 219-225)
+  - Project Status (lines 226-230)
+  - Architecture (lines 231-250)
+  - Prompts and Tools (lines 251-255)
+  - Common Tasks (lines 256-275)
+  - Testing Commands (lines 276-286)
+    - Next Development Steps (lines 287-294)
+  - Adaptive Filter Attention Plan (lines 296-298)
 
 ## IMPORTANT: READ THIS ENTIRE FILE
 
 **DO NOT just read the first 50 lines.** This document contains:
-- Critical rules for systematic work (lines 53-129)
-- Core engineering principles for strategic decisions (lines 130-188)
-- Applying these principles (lines 189-197)
-- Updating this document (lines 198-214)
-- Project-specific guidance (lines 216-293)
+- Critical rules for systematic work (lines 54-130)
+- Core engineering principles for strategic decisions (lines 131-189)
+- Applying these principles (lines 190-198)
+- Updating this document (lines 199-216)
+- Project-specific guidance (lines 217-298)
 
 **CRITICAL: When updating AGENTS.md, you MUST update these line numbers!**
 - After ANY edit, recalculate the line ranges for each section
@@ -291,3 +292,7 @@ ruff .         # static analysis
 4. Investigate strict forward-forward training by detaching cross-time paths.
 5. Expand tests to cover training stability, generation quality, and wiring utilities.
 6. Begin exploring text generation using a diffusion paradigm and other non-standard model features.
+
+### Adaptive Filter Attention Plan
+
+Consult `AFA.md` for the full milestone roadmap based on the paper "Attention as an Adaptive Filter" (2509.04154v1.pdf). When implementing Adaptive Filter Attention features, refer to both documents for guidance.
