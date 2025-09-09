@@ -117,6 +117,15 @@ class RWKVRegionCell(nn.Module):
         self.radius_var = self.radius_var.detach()
         self.surprise_ema = self.surprise_ema.detach()
 
+    def telemetry(self) -> dict:
+        """Return lightweight telemetry for logging."""
+        prec = (self.state_var + 1e-9).reciprocal()
+        return {
+            "state_var": float(self.state_var.mean().detach()),
+            "state_prec": float(prec.mean().detach()),
+            "surprise_ema": float(self.surprise_ema.detach()),
+        }
+
     def step(self, x_in: torch.Tensor, step_pos_scalar: float) -> torch.Tensor:
         """One RWKV region update.
 

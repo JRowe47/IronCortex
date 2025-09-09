@@ -212,12 +212,12 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 6.1 Telemetry
 
-* [ ] Log per‑region: `state_var/prec`, `surprise_ema`, routing weights stats (mean, entropy).
-* [ ] Log AFA: `alpha`, `sigma_proc`, `eta_obs`, kernel norms.
+* [x] Log per‑region: `state_var/prec`, `surprise_ema`, routing weights stats (mean, entropy).
+* [x] Log AFA: `alpha`, `sigma_proc`, `eta_obs`, kernel norms.
 
 ### 6.2 Unit Tests
 
-* [ ] RNG‑seeded checks for:
+* [x] RNG‑seeded checks for:
 
   * No NaNs/Inf under stress.
   * Grad flow through all new branches.
@@ -225,8 +225,8 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 6.3 Benchmarks
 
-* [ ] Micro‑benchmarks: before/after runtime & memory on synthetic long sequences.
-* [ ] Quality proxy: noise‑rejection toy task (AFA on/off).
+* [x] Micro‑benchmarks: before/after runtime & memory on synthetic long sequences.
+* [x] Quality proxy: noise‑rejection toy task (AFA on/off).
 
 ---
 

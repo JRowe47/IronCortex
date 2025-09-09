@@ -37,6 +37,7 @@ class AdaptiveFilterAttention(nn.Module):
         self.v_proj = nn.Linear(d_model, d_model)
         self.out_proj = nn.Linear(d_model, d_model)
         self.register_buffer("last_attn_energy", torch.tensor(0.0), persistent=False)
+        self.register_buffer("last_kernel_norm", torch.tensor(0.0), persistent=False)
 
     def build_time_kernels(self, T: int) -> torch.Tensor:
         """Return a kernel ``k[t] = exp(-alpha * t * dt)`` for ``t`` in ``[0, T)``."""
@@ -65,16 +66,31 @@ class AdaptiveFilterAttention(nn.Module):
 
         # apply temporal decay based on |i-j|
         kernels = self.build_time_kernels(T)  # [T]
+        self.last_kernel_norm = kernels.norm().detach()
         idx = torch.arange(T, device=x.device)
         lag = (idx.view(1, 1, T, 1) - idx.view(1, 1, 1, T)).abs()
         decay = kernels[lag]
         scores = scores * decay
 
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, float("-inf"))
-
+            if mask.dim() == 3:
+                mask = mask.unsqueeze(1)
+            scores = scores.masked_fill(mask == 0, -1e9)
         attn = F.softmax(scores, dim=-1)
+        if mask is not None:
+            attn = attn * mask
+            z = attn.sum(dim=-1, keepdim=True).clamp_min(1e-9)
+            attn = attn / z
         self.last_attn_energy = (-(attn + 1e-9).log().mean()).detach()
         out = torch.matmul(attn, v)  # [B,H,T,D]
         out = out.transpose(1, 2).contiguous().view(B, T, self.d_model)
         return self.out_proj(out)
+
+    def telemetry(self) -> dict:
+        """Return telemetry metrics for logging."""
+        return {
+            "alpha": float(self.alpha.detach()),
+            "sigma_proc": float(self.sigma_proc.detach()),
+            "eta_obs": float(self.eta_obs.detach()),
+            "kernel_norm": float(self.last_kernel_norm),
+        }
