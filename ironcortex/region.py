@@ -47,6 +47,8 @@ class RWKVRegionCell(nn.Module):
         self.register_buffer("state_num", torch.zeros(d), persistent=False)
         self.register_buffer("state_den", torch.zeros(d), persistent=False)
         self.register_buffer("state_var", torch.zeros(d), persistent=False)
+        self.register_buffer("surprise_ema", torch.tensor(0.0), persistent=False)
+        self.surprise_beta = 0.99
         # Radial–tangential buffers
         self.radius_beta = 0.9
         self.register_buffer("radius", torch.zeros(1), persistent=False)
@@ -113,6 +115,7 @@ class RWKVRegionCell(nn.Module):
         self.state_var = self.state_var.detach()
         self.radius = self.radius.detach()
         self.radius_var = self.radius_var.detach()
+        self.surprise_ema = self.surprise_ema.detach()
 
     def step(self, x_in: torch.Tensor, step_pos_scalar: float) -> torch.Tensor:
         """One RWKV region update.
@@ -149,6 +152,12 @@ class RWKVRegionCell(nn.Module):
             self.state_num = new_state * (prior_den + w)
             self.state_den = prior_den + w
             self.state_var = (1 - gain) * prior_var
+            state_prec = (prior_var + obs_var + 1e-9).reciprocal()
+            surprise = (resid.pow(2) * state_prec).sum()
+            self.surprise_ema = (
+                self.surprise_beta * self.surprise_ema
+                + (1 - self.surprise_beta) * surprise.detach()
+            )
             y = r * new_state
         else:
             self.state_num = self.state_num * lam + w * v

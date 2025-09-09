@@ -136,6 +136,7 @@ class IronRoPESelfAttention(nn.Module):
         self.c_proj = nn.Linear(n_embd, n_embd)
         self.adrop = nn.Dropout(attn_pdrop)
         self.rdrop = nn.Dropout(resid_pdrop)
+        self.register_buffer("last_attn_energy", torch.tensor(0.0), persistent=False)
 
         # Attention mask
         if causal:
@@ -229,6 +230,7 @@ class IronRoPESelfAttention(nn.Module):
 
         # Softmax and (optional) dropout
         att = F.softmax(att, dim=-1)
+        self.last_attn_energy = (-(att + 1e-9).log().mean()).detach()
         if dropout:
             att = self.adrop(att)
 
@@ -291,6 +293,7 @@ class LocalTokenMixer(nn.Module):
             self.anch_embed = nn.Parameter(
                 torch.randn(3, d) * 0.02
             )  # center / span_start / span_end
+        self.register_buffer("last_energy", torch.tensor(0.0), persistent=False)
         self.apply(init_weights)
 
     @torch.no_grad()
@@ -352,4 +355,8 @@ class LocalTokenMixer(nn.Module):
         )
         Y_main = Y[:, :T, :]
         pooled = masked_mean(Y_main, focus_mask)  # [B,d]
+        attn_energy = getattr(
+            self.attn, "last_attn_energy", torch.tensor(0.0, device=device)
+        )
+        self.last_energy = attn_energy.detach()
         return pooled

@@ -73,13 +73,14 @@ def train_step(
         focus_zero = torch.zeros_like(focus_map, dtype=torch.bool)
         x_all = torch.stack([tokens, x_neg], dim=0)
         focus_all = torch.stack([focus_zero, focus_map], dim=0)
-        H_all, reg_all, logits_all, traces_all = model.reasoning_loop_batch(
+        H_all, reg_all, logits_all, traces_all, energy_all = model.reasoning_loop_batch(
             x_all, model.cfg.K_inner, focus_all
         )
         H_pos, H_neg = H_all
         reg_mask_p, reg_mask_n = reg_all
         logits_pos, logits_neg = logits_all
         traces_pos, traces_neg = traces_all
+        attn_energy_pos, attn_energy_neg = energy_all
 
         # Cross-entropy of the final token for quick monitoring
         ce_loss = F.cross_entropy(logits_pos.unsqueeze(0), tokens[-1].unsqueeze(0))
@@ -112,13 +113,27 @@ def train_step(
                 if hneg is not None and hneg.numel() > 0
                 else torch.tensor(0.0, device=device)
             )
+            surprise = model.regions[r].surprise_ema.to(device)
+            lam_s = (
+                model.cfg.surprise_lambda
+                if model.cfg.enable_ff_energy_alignment
+                else 0.0
+            )
+            gpos_eff = gpos - lam_s * surprise
+            gneg_eff = gneg - lam_s * surprise
             τ = model.reg_ff[r].tau
-            L_pos = F.softplus(-(gpos - τ))
-            L_neg = F.softplus(+(gneg - τ))
+            L_pos = F.softplus(-(gpos_eff - τ))
+            L_neg = F.softplus(+(gneg_eff - τ))
             ff_loss = ff_loss + (L_pos + L_neg)
             if hpos is not None and hpos.numel() > 0:
-                model.reg_ff[r].update_tau(gpos.detach())
-            gain = float((gpos - gneg).detach().item())
+                mean_prec = (model.regions[r].state_var + 1e-9).reciprocal().mean()
+                model.reg_ff[r].update_tau(
+                    gpos_eff.detach(),
+                    mean_prec.detach(),
+                    kappa=model.cfg.tau_kappa,
+                    target_prec=model.cfg.tau_target_prec,
+                )
+            gain = float((gpos_eff - gneg_eff).detach().item())
             model.gate.update_gain(r, gain)
             # Delay Hebbian router updates until after autograd to avoid
             # in-place weight modifications on tensors that require grad.
@@ -169,8 +184,8 @@ def train_step(
         # -------- Verifier energy FF loss --------
         y_pos = F.one_hot(tokens[-1], num_classes=model.V).float()
         y_neg = F.softmax(logits_neg.detach(), dim=-1)
-        E_pos = model.verify(motor_pos.detach(), y_pos)
-        E_neg = model.verify(motor_neg.detach(), y_neg)
+        E_pos = model.verify(motor_pos.detach(), y_pos, attn_energy=attn_energy_pos)
+        E_neg = model.verify(motor_neg.detach(), y_neg, attn_energy=attn_energy_neg)
         if model.cfg.enable_ff_energy_alignment:
             # Placeholder for future energy-alignment modifications
             verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
