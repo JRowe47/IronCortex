@@ -6,15 +6,15 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ## Milestone 0 — Scaffolding & Feature Flags
 
-* [ ] **Add feature flags** to your config/system:
+* [x] **Add feature flags** to your config/system:
 
   * `enable_adaptive_filter_dynamics` (default: false)
   * `enable_precision_routed_messages` (default: false)
   * `enable_radial_tangential_updates` (default: false)
   * `enable_afa_attention` (default: false)
   * `enable_ff_energy_alignment` (default: false)
-* [ ] **Centralize flags**: expose these in the model constructor(s) and CLI.
-* [ ] **Guard code paths** with flags to allow safe incremental rollouts.
+* [x] **Centralize flags**: expose these in the model constructor(s) and CLI.
+* [x] **Guard code paths** with flags to allow safe incremental rollouts.
 
 ---
 
@@ -24,38 +24,38 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 1.1 State & Parameters
 
-* [ ] **Create precision-aware state buffers** in your RWKV region cell (e.g., `iron_cortex/regions/rwkv_region.py`):
+* [x] **Create precision-aware state buffers** in your RWKV region cell (e.g., `iron_cortex/regions/rwkv_region.py`):
 
   * `state_var: Tensor` (or `state_prec`) same shape as state.
   * `process_noise: Parameter` (per-dim, initialized small).
   * `obs_noise: Parameter` (per-dim or scalar).
-* [ ] **Extend decay to vector form**:
+* [x] **Extend decay to vector form**:
 
   * `decay_vec: Parameter` (negative real parts; clamp to ≤ 0).
   * (Optional) `freq_vec: Parameter` for paired dims to enable rotations (imag parts).
 
 ### 1.2 Propagation Step (Prior)
 
-* [ ] **Propagate mean & variance** each micro‑step:
+* [x] **Propagate mean & variance** each micro‑step:
 
   * Prior mean via `exp(A Δt)`; begin with elementwise `decay = exp(decay_vec * dt)`.
   * Prior variance via `state_var = state_var * decay.pow(2) + process_noise`.
 
 ### 1.3 Update Step (Robust/Kalman‑like)
 
-* [ ] **Compute observation residual** after forming the new contribution (e.g., `w * v` or message injection):
+* [x] **Compute observation residual** after forming the new contribution (e.g., `w * v` or message injection):
 
   * `pred = state_num / (state_den + eps)` (your existing fast-weight average).
   * `resid = (w * v) - pred`.
-* [ ] **Kalman gain** per dim:
+* [x] **Kalman gain** per dim:
 
   * `obs_var = f(k) * obs_noise` (e.g., `obs_var = torch.exp(-k)*obs_noise` to encode “confidence” in strong keys).
   * `gain = prior_var / (prior_var + obs_var)`.
-* [ ] **State update**:
+* [x] **State update**:
 
   * `new_state = pred + gain * resid`.
   * Write back `state_num`, `state_var = (1 - gain) * prior_var`.
-* [ ] **Gate with feature flag** to fall back to original `state_num = state_num*lam + w*v`.
+* [x] **Gate with feature flag** to fall back to original `state_num = state_num*lam + w*v`.
 
 ### 1.4 Optional: Complex/Rotational Dynamics
 
@@ -65,9 +65,9 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### Tests/Acceptance
 
-* [ ] Unit tests: forward parity vs. original (flag off).
-* [ ] Numerical sanity: `state_var` non-negative, decreasing with small `gain`.
-* [ ] Gradients stable on a random mini‑run.
+* [x] Unit tests: forward parity vs. original (flag off).
+* [x] Numerical sanity: `state_var` non-negative, decreasing with small `gain`.
+* [x] Gradients stable on a random mini‑run.
 
 ---
 
@@ -77,11 +77,11 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 2.1 Content Scoring for Neighbors
 
-* [ ] In `iron_cortex/routing/router.py` (or equivalent):
+* [x] In `iron_cortex/routing/router.py` (or equivalent):
 
   * Add `query_lin: ModuleDict` per target region (or shared).
   * Add `key_lin: ModuleDict` per edge `(s→r)` (or shared typed by edge class).
-* [ ] At routing time:
+* [x] At routing time:
 
   * `q_r = query_lin[r](H_prev[r])` (or learned static).
   * `k_sr = key_lin[s,r](H_prev[s])`.
@@ -89,23 +89,23 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 2.2 Robust Reweighting via Residuals
 
-* [ ] Form neighbor message `msg_sr = W_edge[s→r](H[s]) + fourier_bias`.
-* [ ] Compute residual to r’s **prior**: `resid_sr = msg_sr - H_prev[r]`.
-* [ ] Maintain/learn **edge precision** `P_edge[s,r]` (diag or scalar).
-* [ ] **Robust weight**:
+* [x] Form neighbor message `msg_sr = W_edge[s→r](H[s]) + fourier_bias`.
+* [x] Compute residual to r’s **prior**: `resid_sr = msg_sr - H_prev[r]`.
+* [x] Maintain/learn **edge precision** `P_edge[s,r]` (diag or scalar).
+* [x] **Robust weight**:
 
   * `mah = (resid_sr.pow(2) * P_edge[s,r]).sum()`
   * `w_sr = exp(-0.5 * mah)`
-* [ ] **Aggregate**:
+* [x] **Aggregate**:
 
   * `M[r] = sum_s (w_sr * msg_sr)`
   * Normalize by `Z = sum_s w_sr` if `Z>0`.
-* [ ] Log/emit weights for interpretability.
+* [x] Log/emit weights for interpretability.
 
 ### Tests/Acceptance
 
-* [ ] Routing produces identical results to old method with flag off.
-* [ ] With flag on: influence decreases for inconsistent neighbors (synthetic test).
+* [x] Routing produces identical results to old method with flag off.
+* [x] With flag on: influence decreases for inconsistent neighbors (synthetic test).
 * [ ] Stress tests: graph with many neighbors, ensure no OOM.
 
 ---
