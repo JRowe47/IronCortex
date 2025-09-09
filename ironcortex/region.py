@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 from .utils import RMSNorm, KWTA, init_weights
 from .iron_rope import rope_rotate_pairs, make_freq_bank
+from .constants import EPS_DIV, MAX_EXP, MAX_NOISE
 
 # 5) RWKV Region Cell (with Δt skip + time rotation on v)
 # ==========================================================
@@ -69,22 +70,32 @@ class RWKVRegionCell(nn.Module):
         self.apply(init_weights)
 
     def decay_rate(self) -> torch.Tensor:
-        return -F.softplus(self.raw_decay)
+        return -F.softplus(self.raw_decay).clamp_min(-MAX_EXP)
 
     def decay(self, dt: int = 1) -> torch.Tensor:
-        return torch.exp(self.decay_rate() * dt)
+        return torch.exp(self.decay_rate() * dt).clamp_min(EPS_DIV)
 
     def process_noise(self) -> torch.Tensor:
-        return F.softplus(self.process_noise_param)
+        return (
+            F.softplus(self.process_noise_param).clamp_min(EPS_DIV).clamp_max(MAX_NOISE)
+        )
 
     def obs_noise(self) -> torch.Tensor:
-        return F.softplus(self.obs_noise_param)
+        return F.softplus(self.obs_noise_param).clamp_min(EPS_DIV).clamp_max(MAX_NOISE)
 
     def radius_process_noise(self) -> torch.Tensor:
-        return F.softplus(self.radius_process_noise_param)
+        return (
+            F.softplus(self.radius_process_noise_param)
+            .clamp_min(EPS_DIV)
+            .clamp_max(MAX_NOISE)
+        )
 
     def radius_obs_noise(self) -> torch.Tensor:
-        return F.softplus(self.radius_obs_noise_param)
+        return (
+            F.softplus(self.radius_obs_noise_param)
+            .clamp_min(EPS_DIV)
+            .clamp_max(MAX_NOISE)
+        )
 
     def fast_forward(self):
         if self.dt == 0:
@@ -119,7 +130,7 @@ class RWKVRegionCell(nn.Module):
 
     def telemetry(self) -> dict:
         """Return lightweight telemetry for logging."""
-        prec = (self.state_var + 1e-9).reciprocal()
+        prec = (self.state_var + EPS_DIV).reciprocal()
         return {
             "state_var": float(self.state_var.mean().detach()),
             "state_prec": float(prec.mean().detach()),
@@ -146,22 +157,22 @@ class RWKVRegionCell(nn.Module):
             v = rope_rotate_pairs(v, c, s, self.m_time)
 
         lam = self.decay()
-        w = torch.exp(k)  # positive
+        w = torch.exp(k.clamp_max(MAX_EXP))  # positive
 
         if self.enable_adaptive_filter_dynamics:
             prior_num = self.state_num * lam
             prior_den = self.state_den * lam
             prior_var = self.state_var * lam.pow(2) + self.process_noise()
-            pred = prior_num / (prior_den + 1e-9)
+            pred = prior_num / (prior_den + EPS_DIV)
             msg = w * v
             resid = msg - pred
-            obs_var = torch.exp(-k) * self.obs_noise()
-            gain = prior_var / (prior_var + obs_var + 1e-9)
+            obs_var = torch.exp((-k).clamp_max(MAX_EXP)) * self.obs_noise()
+            gain = prior_var / (prior_var + obs_var + EPS_DIV)
             new_state = pred + gain * resid
             self.state_num = new_state * (prior_den + w)
             self.state_den = prior_den + w
             self.state_var = (1 - gain) * prior_var
-            state_prec = (prior_var + obs_var + 1e-9).reciprocal()
+            state_prec = (prior_var + obs_var + EPS_DIV).reciprocal()
             surprise = (resid.pow(2) * state_prec).sum()
             self.surprise_ema = (
                 self.surprise_beta * self.surprise_ema
@@ -171,17 +182,17 @@ class RWKVRegionCell(nn.Module):
         else:
             self.state_num = self.state_num * lam + w * v
             self.state_den = self.state_den * lam + w
-            y = r * (self.state_num / (self.state_den + 1e-9))  # [d]
+            y = r * (self.state_num / (self.state_den + EPS_DIV))  # [d]
 
         if self.enable_radial_tangential_updates:
-            norm = y.norm(2, dim=-1, keepdim=True).clamp_min(1e-9)
+            norm = y.norm(2, dim=-1, keepdim=True).clamp_min(EPS_DIV)
             dir = y / norm
             self.last_dir = dir.detach()
             self.last_norm = norm.detach()
             h_dir = self.o_lin(dir)
             prior_var = self.radius_var + self.radius_process_noise()
             resid = norm - self.radius
-            gain = prior_var / (prior_var + self.radius_obs_noise() + 1e-9)
+            gain = prior_var / (prior_var + self.radius_obs_noise() + EPS_DIV)
             radius_upd = self.radius + gain * resid
             self.radius_var = (1 - gain) * prior_var
             self.radius = (

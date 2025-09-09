@@ -2,6 +2,7 @@ import torch
 
 from ironcortex.region import RWKVRegionCell
 from ironcortex.utils import KWTA
+from ironcortex.constants import EPS_DIV
 
 
 def _manual_step(cell: RWKVRegionCell, x: torch.Tensor) -> torch.Tensor:
@@ -13,7 +14,7 @@ def _manual_step(cell: RWKVRegionCell, x: torch.Tensor) -> torch.Tensor:
     state_num = cell.state_num * lam + w * v
     state_den = cell.state_den * lam + w
     r = torch.sigmoid(cell.r_lin(x_norm))
-    y = r * (state_num / (state_den + 1e-9))
+    y = r * (state_num / (state_den + EPS_DIV))
     h = KWTA(x_norm + cell.o_lin(y), k=max(1, cell.d // 8))
     return h, state_num, state_den
 

@@ -52,6 +52,9 @@ def build_model(
     enable_radial_tangential_updates: bool = False,
     enable_afa_attention: bool = False,
     enable_ff_energy_alignment: bool = False,
+    enable_energy_verifier: bool = True,
+    enable_forward_forward: bool = True,
+    debug_metrics_every_n_steps: int = 0,
 ) -> CortexReasoner:
     cfg = CortexConfig(
         R=36,
@@ -66,6 +69,9 @@ def build_model(
         enable_radial_tangential_updates=enable_radial_tangential_updates,
         enable_afa_attention=enable_afa_attention,
         enable_ff_energy_alignment=enable_ff_energy_alignment,
+        enable_energy_verifier=enable_energy_verifier,
+        enable_forward_forward=enable_forward_forward,
+        debug_metrics_every_n_steps=debug_metrics_every_n_steps,
     )
     neighbors = hex_neighbors(cfg.R)
     reg_coords = hex_axial_coords(cfg.R)
@@ -107,6 +113,19 @@ def train(
             step += 1
             batch = batch.to(device)
             metrics = train_step(model, optimizer, batch, lamb, device)
+            if (
+                model.cfg.debug_metrics_every_n_steps > 0
+                and step % model.cfg.debug_metrics_every_n_steps == 0
+            ):
+                telem = model.telemetry()
+                dbg = (
+                    f"dbg step {step}: var={telem['state_var_mean']:.4f}"
+                    f" prec={telem['state_prec_mean']:.4f}"
+                    f" surprise={telem['surprise_ema']:.4f}"
+                    f" router_H={telem['router_weight_entropy']:.4f}"
+                    f" attn_H={telem['attn_entropy_mean']:.4f}"
+                )
+                print(dbg)
             gain_mean = float(model.gate.gain_ema.mean().item())
             tau_mean = float(torch.stack([r.tau for r in model.reg_ff]).mean().item())
             if step % hparams.log_interval == 0:
@@ -224,6 +243,22 @@ def main() -> None:
         action="store_true",
         help="Enable forward-forward energy alignment",
     )
+    parser.add_argument(
+        "--disable-energy-verifier",
+        action="store_true",
+        help="Disable energy verifier head",
+    )
+    parser.add_argument(
+        "--disable-forward-forward",
+        action="store_true",
+        help="Disable forward-forward training loss",
+    )
+    parser.add_argument(
+        "--debug-metrics-every-n-steps",
+        type=int,
+        default=0,
+        help="Print telemetry metrics every N steps (0 disables)",
+    )
     args = parser.parse_args()
     seed = args.seed if args.seed is not None else random.randrange(2**32)
     random.seed(seed)
@@ -250,6 +285,9 @@ def main() -> None:
         enable_radial_tangential_updates=args.enable_radial_tangential_updates,
         enable_afa_attention=args.enable_afa_attention,
         enable_ff_energy_alignment=args.enable_ff_energy_alignment,
+        enable_energy_verifier=not args.disable_energy_verifier,
+        enable_forward_forward=not args.disable_forward_forward,
+        debug_metrics_every_n_steps=args.debug_metrics_every_n_steps,
     )
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model parameters: {n_params/1e6:.2f}M")

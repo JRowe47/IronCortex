@@ -4,8 +4,10 @@ from typing import Dict, List, Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from .utils import nms_topk
 from .iron_rope import make_freq_bank, relative_fourier_bias
+from .constants import EPS_DIV, EPS_LOG
 
 # 4) Gate (compute allocation) & Router (message passing with Fourier bias)
 # ==========================================================
@@ -216,8 +218,9 @@ class Router(nn.Module):
         if self.enable_precision_routed_messages and self.last_weights:
             w_t = torch.tensor(list(self.last_weights.values()), device=device)
             self.last_weight_mean = float(w_t.mean().item())
-            p = w_t / w_t.sum()
-            self.last_weight_entropy = float((-(p + 1e-9).log() * p).sum().item())
+            Z = w_t.sum().clamp_min(EPS_DIV)
+            p = w_t / Z
+            self.last_weight_entropy = float((-(p + EPS_LOG).log() * p).sum().item())
         else:
             self.last_weight_mean = 0.0
             self.last_weight_entropy = 0.0
