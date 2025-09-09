@@ -14,3 +14,8 @@ class CortexConfig:
     init_decay: float = 0.25
     # Optional dropout in goodness path (disabled by default)
     ff_dropout: bool = False
+    enable_adaptive_filter_dynamics: bool = False
+    enable_precision_routed_messages: bool = False
+    enable_radial_tangential_updates: bool = False
+    enable_afa_attention: bool = False
+    enable_ff_energy_alignment: bool = False

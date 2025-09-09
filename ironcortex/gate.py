@@ -100,11 +100,19 @@ class Router(nn.Module):
     in the transform helps the router "feel" the hex geometry.
     """
 
-    def __init__(self, neighbor_indices: List[List[int]], d: int, R: int):
+    def __init__(
+        self,
+        neighbor_indices: List[List[int]],
+        d: int,
+        R: int,
+        *,
+        enable_precision_routed_messages: bool = False,
+    ):
         super().__init__()
         self.R = R
         self.d = d
         self.neighbors = neighbor_indices
+        self.enable_precision_routed_messages = enable_precision_routed_messages
 
         # Edge transforms
         edges = {}
@@ -133,6 +141,9 @@ class Router(nn.Module):
         H: [R,d], reg_mask_prev: [R] bool, reg_coords: [R,2]
         Returns M: [R,d]
         """
+        if self.enable_precision_routed_messages:
+            # Placeholder: precision-weighted routing will augment this aggregation
+            pass
         device = H.device
         M = torch.zeros(self.R, self.d, device=device)
         # Prepare coordinate tensors for bias

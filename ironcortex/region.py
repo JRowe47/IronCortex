@@ -20,9 +20,19 @@ class RWKVRegionCell(nn.Module):
     diffusion time without breaking w=exp(k) positivity.
     """
 
-    def __init__(self, d: int, m_time_pairs: int = 16, init_decay: float = 0.25):
+    def __init__(
+        self,
+        d: int,
+        m_time_pairs: int = 16,
+        init_decay: float = 0.25,
+        *,
+        enable_adaptive_filter_dynamics: bool = False,
+        enable_radial_tangential_updates: bool = False,
+    ):
         super().__init__()
         self.d = d
+        self.enable_adaptive_filter_dynamics = enable_adaptive_filter_dynamics
+        self.enable_radial_tangential_updates = enable_radial_tangential_updates
         self.norm = RMSNorm(d)
         self.r_lin = nn.Linear(d, d, bias=False)
         self.k_lin = nn.Linear(d, d, bias=False)
@@ -80,6 +90,9 @@ class RWKVRegionCell(nn.Module):
         # Clear predictive trace after use
         self.pred.zero_()
         self.fast_forward()
+        if self.enable_adaptive_filter_dynamics:
+            # Placeholder for adaptive filter dynamics on state_num/state_den
+            pass
         r = torch.sigmoid(self.r_lin(x))
         k = self.k_lin(x)  # keep unrotated (exp(k) >= 0)
         v = self.v_lin(x)
@@ -96,5 +109,8 @@ class RWKVRegionCell(nn.Module):
         self.state_den = self.state_den * lam + w
         y = r * (self.state_num / (self.state_den + 1e-9))  # [d]
         h = x + self.o_lin(y)
+        if self.enable_radial_tangential_updates:
+            # Placeholder for radial–tangential updates on h
+            pass
         h = KWTA(h, k=max(1, self.d // 8))
         return h

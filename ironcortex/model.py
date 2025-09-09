@@ -52,12 +52,25 @@ class CortexReasoner(nn.Module):
 
         # Regions
         self.regions = nn.ModuleList(
-            [RWKVRegionCell(self.d, init_decay=cfg.init_decay) for _ in range(self.R)]
+            [
+                RWKVRegionCell(
+                    self.d,
+                    init_decay=cfg.init_decay,
+                    enable_adaptive_filter_dynamics=cfg.enable_adaptive_filter_dynamics,
+                    enable_radial_tangential_updates=cfg.enable_radial_tangential_updates,
+                )
+                for _ in range(self.R)
+            ]
         )
 
         # Gate & Router
         self.gate = Gate(self.R, self.neighbors, io_idxs)
-        self.router = Router(self.neighbors, self.d, self.R)
+        self.router = Router(
+            self.neighbors,
+            self.d,
+            self.R,
+            enable_precision_routed_messages=cfg.enable_precision_routed_messages,
+        )
 
         # Heads & workspace
         self.rtdd = RTDHead(self.d)
@@ -71,9 +84,15 @@ class CortexReasoner(nn.Module):
         self.verify = EnergyVerifierHead(self.d, self.V, hidden=self.d)
 
         # Local token mixer (Iron RoPE) and input norm
-        self.local_mix = LocalTokenMixer(
-            self.d, n_head=4, block_size=cfg.max_T, m_tok=64
-        )
+        if cfg.enable_afa_attention:
+            # Placeholder: AFA module will replace LocalTokenMixer when implemented
+            self.local_mix = LocalTokenMixer(
+                self.d, n_head=4, block_size=cfg.max_T, m_tok=64
+            )
+        else:
+            self.local_mix = LocalTokenMixer(
+                self.d, n_head=4, block_size=cfg.max_T, m_tok=64
+            )
         self.norm_in = RMSNorm(self.d)
 
         # Per-region FF threshold τ
@@ -119,6 +138,9 @@ class CortexReasoner(nn.Module):
             dim=-1,
         ).unsqueeze(0)
         focus_b = focus_map.unsqueeze(0)
+        if self.cfg.enable_afa_attention:
+            # Placeholder for Adaptive Filter Attention integration
+            pass
         sensor_vec = self.local_mix(
             tok_emb, pos, focus_b, ws_slots=None, use_dropout=self.cfg.ff_dropout
         )[

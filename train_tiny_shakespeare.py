@@ -44,8 +44,29 @@ class TrainHyperParams:
     ckpt_interval: int = 0
 
 
-def build_model(device: torch.device) -> CortexReasoner:
-    cfg = CortexConfig(R=36, d=256, V=256, K_inner=8, B_br=2, k_active=8, max_T=512)
+def build_model(
+    device: torch.device,
+    *,
+    enable_adaptive_filter_dynamics: bool = False,
+    enable_precision_routed_messages: bool = False,
+    enable_radial_tangential_updates: bool = False,
+    enable_afa_attention: bool = False,
+    enable_ff_energy_alignment: bool = False,
+) -> CortexReasoner:
+    cfg = CortexConfig(
+        R=36,
+        d=256,
+        V=256,
+        K_inner=8,
+        B_br=2,
+        k_active=8,
+        max_T=512,
+        enable_adaptive_filter_dynamics=enable_adaptive_filter_dynamics,
+        enable_precision_routed_messages=enable_precision_routed_messages,
+        enable_radial_tangential_updates=enable_radial_tangential_updates,
+        enable_afa_attention=enable_afa_attention,
+        enable_ff_energy_alignment=enable_ff_energy_alignment,
+    )
     neighbors = hex_neighbors(cfg.R)
     reg_coords = hex_axial_coords(cfg.R)
     io_idxs = {"sensor": 0, "motor": cfg.R - 1}
@@ -178,6 +199,31 @@ def main() -> None:
         default=0,
         help="Steps between checkpoint saves (0 disables periodic saving)",
     )
+    parser.add_argument(
+        "--enable-adaptive-filter-dynamics",
+        action="store_true",
+        help="Enable adaptive filter dynamics in regions",
+    )
+    parser.add_argument(
+        "--enable-precision-routed-messages",
+        action="store_true",
+        help="Enable precision-weighted routing",
+    )
+    parser.add_argument(
+        "--enable-radial-tangential-updates",
+        action="store_true",
+        help="Enable radial-tangential state updates",
+    )
+    parser.add_argument(
+        "--enable-afa-attention",
+        action="store_true",
+        help="Enable Adaptive Filter Attention",
+    )
+    parser.add_argument(
+        "--enable-ff-energy-alignment",
+        action="store_true",
+        help="Enable forward-forward energy alignment",
+    )
     args = parser.parse_args()
     seed = args.seed if args.seed is not None else random.randrange(2**32)
     random.seed(seed)
@@ -197,7 +243,14 @@ def main() -> None:
         tokens, batch_size=hparams.batch_size, shuffle=True
     )
 
-    model = build_model(device)
+    model = build_model(
+        device,
+        enable_adaptive_filter_dynamics=args.enable_adaptive_filter_dynamics,
+        enable_precision_routed_messages=args.enable_precision_routed_messages,
+        enable_radial_tangential_updates=args.enable_radial_tangential_updates,
+        enable_afa_attention=args.enable_afa_attention,
+        enable_ff_energy_alignment=args.enable_ff_energy_alignment,
+    )
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model parameters: {n_params/1e6:.2f}M")
     print(f"using seed {seed}")
