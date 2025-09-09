@@ -24,16 +24,16 @@ Objective: Ensure all features are toggleable, safe, and observable.
 ### Rollback
 - Keep prior config defaults; guard all new paths behind flags.
 
-## Milestone 1 — Vectorize Forward‑Forward Training Loop
+## Milestone 1 — Vectorize Forward‑Forward Training Loop ✅
 
 Objective: Remove per-sample Python loops; add batched inner loop.
 
 ### Tasks
-- Batch reasoning loop
+- [x] Batch reasoning loop
   - RG: def reasoning_loop\(.*\): and/or for sample in batch, train_step
   - Add reasoning_loop_batch(inputs, targets, ...) that handles [B, T, ...] in one call, reusing the same micro‑step logic in parallel.
   - Keep original reasoning_loop as a thin wrapper that calls the batch version with B=1.
-- Refactor trainer
+- [x] Refactor trainer
   - Replace per-sample iteration with one batched call; ensure FF goodness and energy losses compute per sample then reduce.
 - Optional: micro‑step weighting
   - Add CFG.ff_goodness_aggregation ∈ {'final','mean','ema'}.

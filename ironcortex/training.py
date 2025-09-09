@@ -7,7 +7,6 @@ import torch.nn.functional as F
 
 from .model import CortexReasoner
 from .corruptions import corrupt
-from .utils import goodness
 from .ff_energy import ff_energy_loss
 
 
@@ -39,8 +38,9 @@ def train_step(
     """One training step mixing FF goodness, RTD, denoising, and tiny auxiliaries.
 
     NOTE: For clarity, this is a *single-step* trainer over a batch of independent
-    sequences. It loops per sample (B small), running the full inner reasoning loop
-    for positive and negative streams, then aggregates losses.
+    sequences. The heavy reasoning loop now runs in parallel over the batch to
+    improve throughput. Per‑sample bookkeeping (e.g. corruption targets and
+    denoising masks) remains in lightweight Python loops.
 
     Returns metrics dict with component losses and an approximate cross entropy.
     """
@@ -48,189 +48,150 @@ def train_step(
     _detach_model_state(model)
 
     B, T = clean_tokens.shape
-    total_ff = 0.0
-    total_rtd = 0.0
-    total_denoise = 0.0
-    total_critic = 0.0
-    total_verify = 0.0
-    total_ce_last = 0.0
-    total_E_pos = 0.0
-    total_E_neg = 0.0
 
     optimizer.zero_grad()
-    total_loss_val = 0.0
 
+    # Prepare negative/corrupted streams for the whole batch.
+    neg_tokens = []
+    focus_maps = []
+    denoise_targets = []
+    denoise_masks = []
+    is_real_flags = []
     for b in range(B):
         tokens = clean_tokens[b]
-
-        # Sample corruption mode
         mode = random.choices(["RTD", "SPAN", "BLOCK"], weights=[0.5, 0.3, 0.2])[0]
-        x_neg, is_real, focus_map, denoise_targets, denoise_mask = corrupt(
-            tokens, model.V, mode
+        x_neg, is_real, focus_map, d_targets, d_mask = corrupt(tokens, model.V, mode)
+        neg_tokens.append(x_neg)
+        focus_maps.append(focus_map)
+        denoise_targets.append(d_targets)
+        denoise_masks.append(d_mask)
+        is_real_flags.append(bool(is_real.all()))
+
+    neg_tokens = torch.stack(neg_tokens, dim=0)
+    focus_neg = torch.stack(focus_maps, dim=0)
+    focus_pos = torch.zeros_like(focus_neg, dtype=torch.bool)
+    tokens_all = torch.cat([clean_tokens, neg_tokens], dim=0)
+    focus_all = torch.cat([focus_pos, focus_neg], dim=0)
+
+    # Run the reasoning loop once over all sequences (pos & neg).
+    H_all, reg_all, logits_all, _traces, energy_all = model.reasoning_loop_batch(
+        tokens_all, model.cfg.K_inner, focus_all
+    )
+
+    H_pos, H_neg = H_all[:B], H_all[B:]
+    reg_mask_p, reg_mask_n = reg_all[:B], reg_all[B:]
+    logits_pos, logits_neg = logits_all[:B], logits_all[B:]
+    attn_energy_pos, attn_energy_neg = energy_all[:B], energy_all[B:]
+
+    # Cross-entropy on final token (monitoring only).
+    ce_loss = F.cross_entropy(logits_pos, clean_tokens[:, -1])
+
+    # -------- FF per-region losses (using final states) --------
+    ff_loss = torch.tensor(0.0, device=device)
+    hebbian_updates = []
+    lam_s = model.cfg.surprise_lambda if model.cfg.enable_ff_energy_alignment else 0.0
+    for r in range(model.R):
+        hpos = H_pos[:, r, :]
+        hneg = H_neg[:, r, :]
+        gpos = hpos.pow(2).mean(dim=-1)
+        gneg = hneg.pow(2).mean(dim=-1)
+        surprise = model.regions[r].surprise_ema.to(device)
+        gpos_eff = gpos - lam_s * surprise
+        gneg_eff = gneg - lam_s * surprise
+        tau = model.reg_ff[r].tau
+        L_pos = F.softplus(-(gpos_eff - tau))
+        L_neg = F.softplus(+(gneg_eff - tau))
+        ff_loss = ff_loss + (L_pos + L_neg).mean()
+
+        mean_prec = (model.regions[r].state_var + 1e-9).reciprocal().mean()
+        model.reg_ff[r].update_tau(
+            gpos_eff.detach().mean(),
+            mean_prec.detach(),
+            kappa=model.cfg.tau_kappa,
+            target_prec=model.cfg.tau_target_prec,
         )
 
-        # Batch positive and negative together
-        focus_zero = torch.zeros_like(focus_map, dtype=torch.bool)
-        x_all = torch.stack([tokens, x_neg], dim=0)
-        focus_all = torch.stack([focus_zero, focus_map], dim=0)
-        H_all, reg_all, logits_all, traces_all, energy_all = model.reasoning_loop_batch(
-            x_all, model.cfg.K_inner, focus_all
-        )
-        H_pos, H_neg = H_all
-        reg_mask_p, reg_mask_n = reg_all
-        logits_pos, logits_neg = logits_all
-        traces_pos, traces_neg = traces_all
-        attn_energy_pos, attn_energy_neg = energy_all
-
-        # Cross-entropy of the final token for quick monitoring
-        ce_loss = F.cross_entropy(logits_pos.unsqueeze(0), tokens[-1].unsqueeze(0))
-
-        # -------- FF per-region losses --------
-        ff_loss = torch.tensor(0.0, device=device)
-        Hpos_stack = (
-            torch.stack(traces_pos, dim=0)
-            if len(traces_pos) > 0
-            else torch.zeros(0, model.R, model.d, device=device)
-        )
-        Hneg_stack = (
-            torch.stack(traces_neg, dim=0)
-            if len(traces_neg) > 0
-            else torch.zeros(0, model.R, model.d, device=device)
-        )
-
-        hebbian_updates = []
-        for r in range(model.R):
-            hpos = Hpos_stack[:, r, :] if Hpos_stack.numel() > 0 else None
-            hneg = Hneg_stack[:, r, :] if Hneg_stack.numel() > 0 else None
-
-            gpos = (
-                goodness(hpos)
-                if hpos is not None and hpos.numel() > 0
-                else torch.tensor(0.0, device=device)
-            )
-            gneg = (
-                goodness(hneg)
-                if hneg is not None and hneg.numel() > 0
-                else torch.tensor(0.0, device=device)
-            )
-            surprise = model.regions[r].surprise_ema.to(device)
-            lam_s = (
-                model.cfg.surprise_lambda
-                if model.cfg.enable_ff_energy_alignment
-                else 0.0
-            )
-            gpos_eff = gpos - lam_s * surprise
-            gneg_eff = gneg - lam_s * surprise
-            τ = model.reg_ff[r].tau
-            L_pos = F.softplus(-(gpos_eff - τ))
-            L_neg = F.softplus(+(gneg_eff - τ))
-            ff_loss = ff_loss + (L_pos + L_neg)
-            if hpos is not None and hpos.numel() > 0:
-                mean_prec = (model.regions[r].state_var + 1e-9).reciprocal().mean()
-                model.reg_ff[r].update_tau(
-                    gpos_eff.detach(),
-                    mean_prec.detach(),
-                    kappa=model.cfg.tau_kappa,
-                    target_prec=model.cfg.tau_target_prec,
-                )
-            gain = float((gpos_eff - gneg_eff).detach().item())
-            model.gate.update_gain(r, gain)
-            # Delay Hebbian router updates until after autograd to avoid
-            # in-place weight modifications on tensors that require grad.
-            if gain > 0 and bool(reg_mask_p[r]):
-                post = H_pos[r].detach()
+        gain = float((gpos_eff - gneg_eff).detach().mean().item())
+        model.gate.update_gain(r, gain)
+        if gain > 0:
+            for b in range(B):
+                if not bool(reg_mask_p[b, r]):
+                    continue
+                post = H_pos[b, r].detach()
                 for s in model.neighbors[r]:
-                    if not bool(reg_mask_p[s]):
+                    if not bool(reg_mask_p[b, s]):
                         continue
-                    pre = H_pos[s].detach()
+                    pre = H_pos[b, s].detach()
                     hebbian_updates.append((r, s, gain, post, pre))
 
-        # -------- RTD loss (on negative stream motor state) --------
-        motor_pos = H_pos[model.io_idxs["motor"]]
-        motor_neg = H_neg[model.io_idxs["motor"]]  # [d]
-        rtd_logits = model.rtdd(motor_neg).unsqueeze(0)  # [1,2]
-        rtd_target = (
-            torch.tensor([[1, 0]], device=device)
-            if is_real.all()
-            else torch.tensor([[0, 1]], device=device)
-        )
-        rtd_loss = F.cross_entropy(rtd_logits, rtd_target.argmax(dim=-1))
+    # -------- RTD loss (on negative stream motor state) --------
+    motor_pos = H_pos[:, model.io_idxs["motor"], :]
+    motor_neg = H_neg[:, model.io_idxs["motor"], :]
+    rtd_logits = model.rtdd(motor_neg)
+    rtd_target = (~torch.tensor(is_real_flags, device=device)).long()
+    rtd_loss = F.cross_entropy(rtd_logits, rtd_target)
 
-        # -------- Denoising loss (mask-predict) on masked positions --------
-        token_logits, aux = model.lm_head(motor_neg)  # [V]
-        if bool(denoise_mask.any()):
-            first_idx = int(denoise_mask.nonzero(as_tuple=False)[0].item())
-            target_id = denoise_targets[first_idx].unsqueeze(0)  # [1]
-            ce = F.cross_entropy(token_logits.unsqueeze(0), target_id)
+    # -------- Denoising loss (mask-predict) --------
+    denoise_loss = torch.tensor(0.0, device=device)
+    for b in range(B):
+        logits_b, aux_b = model.lm_head(motor_neg[b])
+        if bool(denoise_masks[b].any()):
+            idx = int(denoise_masks[b].nonzero(as_tuple=False)[0].item())
+            target_id = denoise_targets[b][idx].unsqueeze(0).to(device)
+            ce = F.cross_entropy(logits_b.unsqueeze(0), target_id)
             denoise_loss = (
-                ce
-                + aux.get("facet_balance", torch.tensor(0.0, device=device)) * λ.facet
+                denoise_loss
+                + ce
+                + aux_b.get("facet_balance", torch.tensor(0.0, device=device)) * λ.facet
             )
-        else:
-            denoise_loss = torch.tensor(0.0, device=device)
+    denoise_loss = denoise_loss / max(1, B)
 
-        # -------- Critic regression (predict realized Δgoodness) --------
-        realized_delta_g = (goodness(H_pos) - goodness(H_neg)).detach()
-        active_n = reg_mask_n.nonzero(as_tuple=False).squeeze(-1)
-        ws_state_neg = (
-            H_neg[active_n].mean(dim=0)
-            if active_n.numel() > 0
-            else torch.zeros(model.d, device=device)
-        )
-        p, g = model.plan(ws_state_neg, H_neg[model.io_idxs["motor"]])
-        v_hat = model.critic(ws_state_neg, g)
-        critic_loss = F.mse_loss(v_hat, realized_delta_g)
+    # -------- Critic regression --------
+    realized_delta_g = (
+        H_pos.pow(2).mean(dim=-1).mean(dim=-1) - H_neg.pow(2).mean(dim=-1).mean(dim=-1)
+    ).detach()
+    ws_state_neg = torch.zeros(B, model.d, device=device)
+    for b in range(B):
+        active = reg_mask_n[b].nonzero(as_tuple=False).squeeze(-1)
+        if active.numel() > 0:
+            ws_state_neg[b] = H_neg[b, active].mean(dim=0)
+    p, g = model.plan(ws_state_neg, motor_neg)
+    v_hat = model.critic(ws_state_neg, g)
+    critic_loss = F.mse_loss(v_hat, realized_delta_g)
 
-        # -------- Verifier energy FF loss --------
-        y_pos = F.one_hot(tokens[-1], num_classes=model.V).float()
-        y_neg = F.softmax(logits_neg.detach(), dim=-1)
-        E_pos = model.verify(motor_pos.detach(), y_pos, attn_energy=attn_energy_pos)
-        E_neg = model.verify(motor_neg.detach(), y_neg, attn_energy=attn_energy_neg)
-        if model.cfg.enable_ff_energy_alignment:
-            # Placeholder for future energy-alignment modifications
-            verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
-        else:
-            verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
-        total_E_pos += float(E_pos.detach().mean().item())
-        total_E_neg += float(E_neg.detach().mean().item())
+    # -------- Verifier energy FF loss --------
+    y_pos = F.one_hot(clean_tokens[:, -1], num_classes=model.V).float()
+    y_neg = F.softmax(logits_neg.detach(), dim=-1)
+    E_pos = model.verify(motor_pos.detach(), y_pos, attn_energy=attn_energy_pos)
+    E_neg = model.verify(motor_neg.detach(), y_neg, attn_energy=attn_energy_neg)
+    verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
 
-        # -------- Total --------
-        total = (
-            λ.ff * ff_loss
-            + λ.rtd * rtd_loss
-            + λ.denoise * denoise_loss
-            + λ.critic * critic_loss
-            + λ.verify * verifier_loss
-        )
+    total = (
+        λ.ff * ff_loss
+        + λ.rtd * rtd_loss
+        + λ.denoise * denoise_loss
+        + λ.critic * critic_loss
+        + λ.verify * verifier_loss
+    )
 
-        total.backward()
-        # Apply accumulated Hebbian updates now that gradients are computed.
-        with torch.no_grad():
-            for r, s, gain, post, pre in hebbian_updates:
-                W = model.router.W_edge[f"{s}->{r}"].weight
-                W.add_(1e-3 * gain * torch.outer(post, pre))
-        hebbian_updates.clear()
-        total_loss_val += float(total.detach().item())
+    total.backward()
+    with torch.no_grad():
+        for r, s, gain, post, pre in hebbian_updates:
+            W = model.router.W_edge[f"{s}->{r}"].weight
+            W.add_(1e-3 * gain * torch.outer(post, pre))
 
-        total_ff += float(ff_loss.detach().item())
-        total_rtd += float(rtd_loss.detach().item())
-        total_denoise += float(denoise_loss.detach().item())
-        total_critic += float(critic_loss.detach().item())
-        total_verify += float(verifier_loss.detach().item())
-        total_ce_last += float(ce_loss.detach().item())
-
-        model.gate.update_homeo(reg_mask_n)
+    model.gate.update_homeo(reg_mask_n.any(dim=0))
 
     optimizer.step()
 
     return {
-        "ff": total_ff / B,
-        "rtd": total_rtd / B,
-        "denoise": total_denoise / B,
-        "critic": total_critic / B,
-        "verify": total_verify / B,
-        "E_pos": total_E_pos / B,
-        "E_neg": total_E_neg / B,
-        "ce_last": total_ce_last / B,
-        "total": total_loss_val / B,
+        "ff": float(ff_loss.detach().item()),
+        "rtd": float(rtd_loss.detach().item()),
+        "denoise": float(denoise_loss.detach().item()),
+        "critic": float(critic_loss.detach().item()),
+        "verify": float(verifier_loss.detach().item()),
+        "E_pos": float(E_pos.detach().mean().item()),
+        "E_neg": float(E_neg.detach().mean().item()),
+        "ce_last": float(ce_loss.detach().item()),
+        "total": float(total.detach().item()),
     }
