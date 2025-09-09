@@ -116,26 +116,26 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 3.1 Directional Processing
 
-* [ ] After computing region output vector `y`:
+* [x] After computing region output vector `y`:
 
   * `norm = y.norm(2, dim=-1, keepdim=True) + eps`
   * `dir = y / norm`
-* [ ] Apply output transform to **direction only**:
+* [x] Apply output transform to **direction only**:
 
   * `h_dir = o_lin(dir)`
   * Compose with magnitude:
 
     * Option A: `h = x + norm * h_dir`
-    * Option B: EMA magnitude `radius = ρ*radius + (1-ρ)*norm` and `h = x + radius * h_dir`.
+    * [x] Option B: EMA magnitude `radius = ρ*radius + (1-ρ)*norm` and `h = x + radius * h_dir`.
 
 ### 3.2 Precision on Magnitude (Optional)
 
-* [ ] Track `radius_var` (1‑D Kalman on norm) and update radial component with small gain.
+* [x] Track `radius_var` (1‑D Kalman on norm) and update radial component with small gain.
 
 ### Tests/Acceptance
 
-* [ ] Unit test: norm of `dir` \~ 1, finite grads.
-* [ ] Radial EMA reduces spikes on synthetic bursts.
+* [x] Unit test: norm of `dir` \~ 1, finite grads.
+* [x] Radial EMA reduces spikes on synthetic bursts.
 
 ---
 

@@ -47,6 +47,14 @@ class RWKVRegionCell(nn.Module):
         self.register_buffer("state_num", torch.zeros(d), persistent=False)
         self.register_buffer("state_den", torch.zeros(d), persistent=False)
         self.register_buffer("state_var", torch.zeros(d), persistent=False)
+        # Radial–tangential buffers
+        self.radius_beta = 0.9
+        self.register_buffer("radius", torch.zeros(1), persistent=False)
+        self.register_buffer("radius_var", torch.zeros(1), persistent=False)
+        self.radius_process_noise_param = nn.Parameter(torch.tensor(-4.0))
+        self.radius_obs_noise_param = nn.Parameter(torch.tensor(0.0))
+        self.register_buffer("last_dir", torch.zeros(d), persistent=False)
+        self.register_buffer("last_norm", torch.zeros(1), persistent=False)
         # Predictive trace for HTM-style temporal memory
         self.register_buffer("pred", torch.zeros(d), persistent=False)
         self.dt = 0
@@ -69,6 +77,12 @@ class RWKVRegionCell(nn.Module):
 
     def obs_noise(self) -> torch.Tensor:
         return F.softplus(self.obs_noise_param)
+
+    def radius_process_noise(self) -> torch.Tensor:
+        return F.softplus(self.radius_process_noise_param)
+
+    def radius_obs_noise(self) -> torch.Tensor:
+        return F.softplus(self.radius_obs_noise_param)
 
     def fast_forward(self):
         if self.dt == 0:
@@ -97,6 +111,8 @@ class RWKVRegionCell(nn.Module):
         self.state_den = self.state_den.detach()
         self.pred = self.pred.detach()
         self.state_var = self.state_var.detach()
+        self.radius = self.radius.detach()
+        self.radius_var = self.radius_var.detach()
 
     def step(self, x_in: torch.Tensor, step_pos_scalar: float) -> torch.Tensor:
         """One RWKV region update.
@@ -139,9 +155,22 @@ class RWKVRegionCell(nn.Module):
             self.state_den = self.state_den * lam + w
             y = r * (self.state_num / (self.state_den + 1e-9))  # [d]
 
-        h = x + self.o_lin(y)
         if self.enable_radial_tangential_updates:
-            # Placeholder for radial–tangential updates on h
-            pass
+            norm = y.norm(2, dim=-1, keepdim=True).clamp_min(1e-9)
+            dir = y / norm
+            self.last_dir = dir.detach()
+            self.last_norm = norm.detach()
+            h_dir = self.o_lin(dir)
+            prior_var = self.radius_var + self.radius_process_noise()
+            resid = norm - self.radius
+            gain = prior_var / (prior_var + self.radius_obs_noise() + 1e-9)
+            radius_upd = self.radius + gain * resid
+            self.radius_var = (1 - gain) * prior_var
+            self.radius = (
+                self.radius_beta * self.radius + (1 - self.radius_beta) * radius_upd
+            )
+            h = x + self.radius * h_dir
+        else:
+            h = x + self.o_lin(y)
         h = KWTA(h, k=max(1, self.d // 8))
         return h
