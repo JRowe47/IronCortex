@@ -19,3 +19,6 @@ class CortexConfig:
     enable_radial_tangential_updates: bool = False
     enable_afa_attention: bool = False
     enable_ff_energy_alignment: bool = False
+    surprise_lambda: float = 0.0
+    tau_kappa: float = 0.0
+    tau_target_prec: float = 1.0

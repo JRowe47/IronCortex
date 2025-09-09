@@ -81,7 +81,12 @@ class CortexReasoner(nn.Module):
         self.work = Workspace(self.d, N_slots=8)
         self.plan = PlannerHead(self.d)
         self.critic = CriticHead(self.d)
-        self.verify = EnergyVerifierHead(self.d, self.V, hidden=self.d)
+        self.verify = EnergyVerifierHead(
+            self.d,
+            self.V,
+            hidden=self.d,
+            use_attn_energy=cfg.enable_ff_energy_alignment,
+        )
 
         # Local token mixer (Iron RoPE or Adaptive Filter Attention)
         self.local_mix = LocalTokenMixer(
@@ -265,7 +270,13 @@ class CortexReasoner(nn.Module):
                 )
 
                 ver_energy = self.verify(
-                    motor_state, F.softmax(logits.detach(), dim=-1)
+                    motor_state,
+                    F.softmax(logits.detach(), dim=-1),
+                    attn_energy=(
+                        self.local_mix.last_energy
+                        if self.cfg.enable_ff_energy_alignment
+                        else None
+                    ),
                 )
                 verify_score = -ver_energy
                 # Estimate Δgoodness (local): g(H_cur) - g(H_prev)
@@ -310,7 +321,7 @@ class CortexReasoner(nn.Module):
         Returns stacked final states, masks, logits, and per-sample traces.
         """
         B = tokens_batch.shape[0]
-        H_list, M_list, L_list, T_list = [], [], [], []
+        H_list, M_list, L_list, T_list, E_list = [], [], [], [], []
         device = tokens_batch.device
         for b in range(B):
             self.detach_state()
@@ -322,9 +333,11 @@ class CortexReasoner(nn.Module):
             M_list.append(reg_mask)
             L_list.append(logits)
             T_list.append(traces)
+            E_list.append(self.local_mix.last_energy.detach())
         return (
             torch.stack(H_list),
             torch.stack(M_list),
             torch.stack(L_list),
             T_list,
+            torch.stack(E_list),
         )

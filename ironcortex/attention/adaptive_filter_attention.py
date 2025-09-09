@@ -36,6 +36,7 @@ class AdaptiveFilterAttention(nn.Module):
         self.k_proj = nn.Linear(d_model, d_model)
         self.v_proj = nn.Linear(d_model, d_model)
         self.out_proj = nn.Linear(d_model, d_model)
+        self.register_buffer("last_attn_energy", torch.tensor(0.0), persistent=False)
 
     def build_time_kernels(self, T: int) -> torch.Tensor:
         """Return a kernel ``k[t] = exp(-alpha * t * dt)`` for ``t`` in ``[0, T)``."""
@@ -73,6 +74,7 @@ class AdaptiveFilterAttention(nn.Module):
             scores = scores.masked_fill(mask == 0, float("-inf"))
 
         attn = F.softmax(scores, dim=-1)
+        self.last_attn_energy = (-(attn + 1e-9).log().mean()).detach()
         out = torch.matmul(attn, v)  # [B,H,T,D]
         out = out.transpose(1, 2).contiguous().view(B, T, self.d_model)
         return self.out_proj(out)

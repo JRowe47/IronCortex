@@ -63,7 +63,9 @@ def generate(
             ):
                 break
 
-        energy = model.verify(motor_state, probs)
+        energy = model.verify(
+            motor_state, probs, attn_energy=model.local_mix.last_energy
+        )
         if (best_energy is None) or (energy < best_energy):
             best_energy = energy
             best_tokens = tokens.clone()

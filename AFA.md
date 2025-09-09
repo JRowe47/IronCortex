@@ -178,25 +178,25 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 5.1 Surprise/Energy per Region
 
-* [ ] After update, compute `surprise = (resid.pow(2) * state_prec).sum()` per region.
-* [ ] Maintain `surprise_ema = β * surprise_ema + (1-β) * surprise`.
-* [ ] Expose `surprise_ema` for logging and FF integration.
+* [x] After update, compute `surprise = (resid.pow(2) * state_prec).sum()` per region.
+* [x] Maintain `surprise_ema = β * surprise_ema + (1-β) * surprise`.
+* [x] Expose `surprise_ema` for logging and FF integration.
 
 ### 5.2 Goodness Adjustment
 
-* [ ] In FF goodness (positive phase), incorporate **low energy == high goodness**:
+* [x] In FF goodness (positive phase), incorporate **low energy == high goodness**:
 
   * `region_goodness = base_goodness - λ * surprise_ema`
   * λ via config.
 
 ### 5.3 Verifier Features
 
-* [ ] Aggregate **attention energy** per token (e.g., `-mean(log w_i)`).
-* [ ] Feed as auxiliary input to `EnergyVerifierHead` (or regularizer term).
+* [x] Aggregate **attention energy** per token (e.g., `-mean(log w_i)`).
+* [x] Feed as auxiliary input to `EnergyVerifierHead` (or regularizer term).
 
 ### 5.4 Adaptive τ (Threshold)
 
-* [ ] In region FF state, modulate `τ` by mean precision:
+* [x] In region FF state, modulate `τ` by mean precision:
 
   * `τ_target = g_pos_mean + κ * (mean(state_prec) - target_prec)`
   * `τ = (1-α)*τ + α*τ_target`.

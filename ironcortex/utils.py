@@ -159,5 +159,18 @@ class RegionFFState(nn.Module):
         super().__init__()
         self.register_buffer("tau", torch.tensor(init_tau, dtype=torch.float32))
 
-    def update_tau(self, g_pos_mean: torch.Tensor, alpha: float = 0.01):
-        self.tau.lerp_(g_pos_mean.to(self.tau.dtype), alpha)
+    def update_tau(
+        self,
+        g_pos_mean: torch.Tensor,
+        mean_prec: torch.Tensor | None = None,
+        *,
+        alpha: float = 0.01,
+        kappa: float = 0.0,
+        target_prec: float = 1.0,
+    ) -> None:
+        tau_target = g_pos_mean.to(self.tau.dtype)
+        if mean_prec is not None:
+            tau_target = tau_target + kappa * (
+                mean_prec.to(self.tau.dtype) - target_prec
+            )
+        self.tau = (1 - alpha) * self.tau + alpha * tau_target
