@@ -109,6 +109,19 @@ class CortexReasoner(nn.Module):
         for region in getattr(self, "regions", []):
             region.detach_state()
 
+    def telemetry(self) -> dict:
+        """Collect telemetry from regions, router, and attention modules."""
+        reg_stats = [r.telemetry() for r in self.regions]
+        metrics = {
+            "regions": reg_stats,
+            "routing_weight_mean": self.router.last_weight_mean,
+            "routing_weight_entropy": self.router.last_weight_entropy,
+        }
+        attn = getattr(self.local_mix, "attn", None)
+        if attn is not None and hasattr(attn, "telemetry"):
+            metrics["afa"] = attn.telemetry()
+        return metrics
+
     def region_input(
         self, r: int, x_sensor: torch.Tensor, msg: torch.Tensor
     ) -> torch.Tensor:

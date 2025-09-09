@@ -135,6 +135,8 @@ class Router(nn.Module):
 
         # Storage for last routing weights (for interpretability)
         self.last_weights: Dict[str, float] = {}
+        self.last_weight_mean: float = 0.0
+        self.last_weight_entropy: float = 0.0
 
         # Fourier relative bias over region coordinates (2-D axial)
         self.fb_alpha = 0.1
@@ -211,4 +213,12 @@ class Router(nn.Module):
                         acc = acc + wi * msgi
                         self.last_weights[key] = float(wi.detach())
             M[r] = acc
+        if self.enable_precision_routed_messages and self.last_weights:
+            w_t = torch.tensor(list(self.last_weights.values()), device=device)
+            self.last_weight_mean = float(w_t.mean().item())
+            p = w_t / w_t.sum()
+            self.last_weight_entropy = float((-(p + 1e-9).log() * p).sum().item())
+        else:
+            self.last_weight_mean = 0.0
+            self.last_weight_entropy = 0.0
         return M
