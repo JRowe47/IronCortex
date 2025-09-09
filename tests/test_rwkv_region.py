@@ -1,0 +1,59 @@
+import torch
+
+from ironcortex.region import RWKVRegionCell
+from ironcortex.utils import KWTA
+
+
+def _manual_step(cell: RWKVRegionCell, x: torch.Tensor) -> torch.Tensor:
+    x_norm = cell.norm(x + cell.pred)
+    cell.pred.zero_()
+    lam = cell.decay()
+    w = torch.exp(cell.k_lin(x_norm))
+    v = cell.v_lin(x_norm)
+    state_num = cell.state_num * lam + w * v
+    state_den = cell.state_den * lam + w
+    r = torch.sigmoid(cell.r_lin(x_norm))
+    y = r * (state_num / (state_den + 1e-9))
+    h = KWTA(x_norm + cell.o_lin(y), k=max(1, cell.d // 8))
+    return h, state_num, state_den
+
+
+def test_forward_parity_flag_off():
+    torch.manual_seed(0)
+    d = 8
+    cell = RWKVRegionCell(d, m_time_pairs=0, enable_adaptive_filter_dynamics=False)
+    x = torch.randn(d)
+    h_expected, num_expected, den_expected = _manual_step(cell, x)
+    h = cell.step(x, 0.0)
+    assert torch.allclose(h, h_expected, atol=1e-6)
+    assert torch.allclose(cell.state_num, num_expected, atol=1e-6)
+    assert torch.allclose(cell.state_den, den_expected, atol=1e-6)
+    assert torch.all(cell.state_var == 0)
+
+
+def test_state_var_non_negative_decreases_with_small_gain():
+    torch.manual_seed(0)
+    d = 8
+    cell = RWKVRegionCell(d, m_time_pairs=0, enable_adaptive_filter_dynamics=True)
+    cell.obs_noise_param.data.fill_(4.0)
+    cell.state_var += 0.1
+    prior_var = cell.state_var.clone()
+    x = torch.randn(d)
+    cell.step(x, 0.0)
+    assert torch.all(cell.state_var >= 0)
+    assert torch.all(cell.state_var < prior_var)
+
+
+def test_gradients_stable_random_run():
+    torch.manual_seed(0)
+    d = 8
+    cell = RWKVRegionCell(d, m_time_pairs=0, enable_adaptive_filter_dynamics=True)
+    xs = torch.randn(4, d, requires_grad=True)
+    outs = []
+    for i in range(4):
+        outs.append(cell.step(xs[i], 0.0))
+    loss = sum(o.sum() for o in outs)
+    loss.backward()
+    for p in cell.parameters():
+        if p.grad is not None:
+            assert torch.all(torch.isfinite(p.grad))
