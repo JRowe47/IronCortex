@@ -83,16 +83,14 @@ class CortexReasoner(nn.Module):
         self.critic = CriticHead(self.d)
         self.verify = EnergyVerifierHead(self.d, self.V, hidden=self.d)
 
-        # Local token mixer (Iron RoPE) and input norm
-        if cfg.enable_afa_attention:
-            # Placeholder: AFA module will replace LocalTokenMixer when implemented
-            self.local_mix = LocalTokenMixer(
-                self.d, n_head=4, block_size=cfg.max_T, m_tok=64
-            )
-        else:
-            self.local_mix = LocalTokenMixer(
-                self.d, n_head=4, block_size=cfg.max_T, m_tok=64
-            )
+        # Local token mixer (Iron RoPE or Adaptive Filter Attention)
+        self.local_mix = LocalTokenMixer(
+            self.d,
+            n_head=4,
+            block_size=cfg.max_T,
+            m_tok=64,
+            use_afa=cfg.enable_afa_attention,
+        )
         self.norm_in = RMSNorm(self.d)
 
         # Per-region FF threshold τ
@@ -138,9 +136,6 @@ class CortexReasoner(nn.Module):
             dim=-1,
         ).unsqueeze(0)
         focus_b = focus_map.unsqueeze(0)
-        if self.cfg.enable_afa_attention:
-            # Placeholder for Adaptive Filter Attention integration
-            pass
         sensor_vec = self.local_mix(
             tok_emb, pos, focus_b, ws_slots=None, use_dropout=self.cfg.ff_dropout
         )[

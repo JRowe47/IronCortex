@@ -258,28 +258,45 @@ class LocalTokenMixer(nn.Module):
     """
 
     def __init__(
-        self, d: int, n_head: int = 4, block_size: int = 8192, m_tok: int = 64
+        self,
+        d: int,
+        n_head: int = 4,
+        block_size: int = 8192,
+        m_tok: int = 64,
+        use_afa: bool = False,
     ):
         super().__init__()
-        self.attn = IronRoPESelfAttention(
-            n_embd=d,
-            n_head=n_head,
-            block_size=block_size,
-            use_iron_rope=True,
-            rope_m=m_tok,
-            rope_coord_dim=2,
-            use_fourier_bias=True,
-            fb_m=32,
-            fb_coord_dim=1,
-            causal=False,
-        )
-        self.anch_embed = nn.Parameter(
-            torch.randn(3, d) * 0.02
-        )  # center / span_start / span_end
+        if use_afa:
+            from .attention.adaptive_filter_attention import (
+                AdaptiveFilterAttention,
+            )
+
+            self.attn = AdaptiveFilterAttention(d_model=d, n_head=n_head)
+            self.use_anchors = False
+            self.register_parameter("anch_embed", None)
+        else:
+            self.attn = IronRoPESelfAttention(
+                n_embd=d,
+                n_head=n_head,
+                block_size=block_size,
+                use_iron_rope=True,
+                rope_m=m_tok,
+                rope_coord_dim=2,
+                use_fourier_bias=True,
+                fb_m=32,
+                fb_coord_dim=1,
+                causal=False,
+            )
+            self.use_anchors = True
+            self.anch_embed = nn.Parameter(
+                torch.randn(3, d) * 0.02
+            )  # center / span_start / span_end
         self.apply(init_weights)
 
     @torch.no_grad()
     def build_anchors(self, T: int, focus_mask: torch.Tensor, strides=(128, 32)):
+        if not self.use_anchors:
+            return []
         anchors = []
         for S in strides:
             centers = list(range(S // 2, T, S))
