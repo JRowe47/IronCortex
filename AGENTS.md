@@ -14,15 +14,16 @@ This file provides guidance to OpenAI Codex when working with code in this repos
 - CORE ENGINEERING PRINCIPLES (lines 131-189)
 - APPLYING THESE PRINCIPLES (lines 190-198)
 - UPDATING THIS DOCUMENT (lines 199-216)
-- PROJECT-SPECIFIC GUIDANCE (lines 217-298)
+- PROJECT-SPECIFIC GUIDANCE (lines 217-302)
   - Project Overview (lines 219-225)
   - Project Status (lines 226-230)
-  - Architecture (lines 231-250)
-  - Prompts and Tools (lines 251-255)
-  - Common Tasks (lines 256-275)
-  - Testing Commands (lines 276-286)
-    - Next Development Steps (lines 287-294)
-  - Adaptive Filter Attention Plan (lines 296-298)
+  - Task Tracking (lines 231-234)
+  - Architecture (lines 235-254)
+  - Prompts and Tools (lines 255-259)
+  - Common Tasks (lines 260-279)
+  - Testing Commands (lines 280-290)
+    - Next Development Steps (lines 291-298)
+  - Adaptive Filter Attention Plan (lines 300-302)
 
 ## IMPORTANT: READ THIS ENTIRE FILE
 
@@ -31,7 +32,7 @@ This file provides guidance to OpenAI Codex when working with code in this repos
 - Core engineering principles for strategic decisions (lines 131-189)
 - Applying these principles (lines 190-198)
 - Updating this document (lines 199-216)
-- Project-specific guidance (lines 217-298)
+- Project-specific guidance (lines 217-302)
 
 **CRITICAL: When updating AGENTS.md, you MUST update these line numbers!**
 - After ANY edit, recalculate the line ranges for each section
@@ -227,6 +228,9 @@ Training uses a forward-forward routine with reconstruction, RTD, and denoising 
 
 **Current State**: Core model, training step, and generation loop implemented with a basic smoke test.
 Areas like dataset loaders, larger model configurations, and evaluation tooling remain open for development.
+### Task Tracking
+
+See `TODO.md` for the milestone roadmap and active tasks. Keep it updated as work progresses.
 
 ### Architecture
 
