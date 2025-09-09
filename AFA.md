@@ -145,7 +145,7 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 4.1 New Module
 
-* [ ] Create `iron_cortex/attention/adaptive_filter_attention.py`:
+* [x] Create `iron_cortex/attention/adaptive_filter_attention.py`:
 
   * Class `AdaptiveFilterAttention(heads, d_model, dt, ...)`.
   * Params: `alpha (decay)`, `sigma_proc`, `eta_obs`, optional `omega` per head.
@@ -162,12 +162,12 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 
 ### 4.2 Integration
 
-* [ ] Wire flag: replace `IronRoPESelfAttention` (or equivalent) with `AdaptiveFilterAttention` when enabled.
-* [ ] Remove/reduce anchor tokens logic behind the same flag.
+* [x] Wire flag: replace `IronRoPESelfAttention` (or equivalent) with `AdaptiveFilterAttention` when enabled.
+* [x] Remove/reduce anchor tokens logic behind the same flag.
 
 ### Tests/Acceptance
 
-* [ ] Parity test: with trivial dynamics (α=0, σ→0), behaves like standard attention on short sequences.
+* [x] Parity test: with trivial dynamics (α=0, σ→0), behaves like standard attention on short sequences.
 * [ ] Speed/memory checks for long T (linear-ish memory).
 
 ---
