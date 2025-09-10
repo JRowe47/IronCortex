@@ -3,9 +3,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .utils import RMSNorm, KWTA, init_weights
-from .iron_rope import rope_rotate_pairs, make_freq_bank
-from .constants import EPS_DIV, MAX_EXP, MAX_NOISE
+from ironcortex.utils import RMSNorm, KWTA, init_weights
+from ironcortex.iron_rope import rope_rotate_pairs, make_freq_bank
+from ironcortex.constants import EPS_DIV, MAX_EXP, MAX_NOISE
 
 # 5) RWKV Region Cell (with Δt skip + time rotation on v)
 # ==========================================================
