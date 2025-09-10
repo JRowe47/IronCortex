@@ -19,6 +19,8 @@ class CortexConfig:
     enable_radial_tangential_updates: bool = False
     enable_afa_attention: bool = False
     enable_ff_energy_alignment: bool = False
+    router_vectorized: bool = True
+    edge_transform_mode: str = "per_edge"
     enable_energy_verifier: bool = True
     enable_forward_forward: bool = True
     debug_metrics_every_n_steps: int = 0

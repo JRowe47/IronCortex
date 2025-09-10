@@ -46,29 +46,29 @@ Objective: Remove per-sample Python loops; add batched inner loop.
 ### Rollback
 - Keep old path behind use_batched_reasoning=False.
 
-## Milestone 2 — Router Refactor: Vectorized, Robust, Lean
+## Milestone 2 — Router Refactor: Vectorized, Robust, Lean ✅
 
 Objective: Replace nested loops with batched message passing; fuse robust weights; reduce transform params.
 
 ### Tasks
-- Vectorized aggregation interface
+- [x] Vectorized aggregation interface
   - RG: class Router, def messages|aggregate
   - Create Router.aggregate(H_prev, active_mask) returning M (messages per region).
   - Build tensors of all active edges:
     - src_idx, dst_idx (shape [E])
   - Gather H_prev[src_idx] → [E, d].
-- Query/Key precompute
+- [x] Query/Key precompute
   - Compute Q[dst] once; K[src] once (shared or per edge‑type).
   - scores = (Q[dst_idx] * K[src_idx]).sum(-1) / sqrt(d) → [E].
-- Robust weighting (fused)
+- [x] Robust weighting (fused)
   - Compute messages: msg = W_edge[src->dst](H_prev[src]) + FourierBias.
   - Residual: resid = msg - H_prev[dst_idx].
   - Mahalanobis: mah = (resid.pow(2) * P_edge[src->dst]).sum(-1).clamp_max(MAX_EXP/0.5).
   - Fused exponent: logw = scores - 0.5 * mah; normalize with scatter_logsumexp per destination; w = exp(logw - logZ[dst_idx]).
-- Scatter-add aggregation
+- [x] Scatter-add aggregation
   - M = zeros([R,d]); scatter_add(M[dst_idx], w.unsqueeze(-1)*msg).
   - Handle empty destinations: if no incoming edge, keep zeros.
-- Parameter reduction modes
+- [x] Parameter reduction modes
   - Add CFG.edge_transform_mode:
     - per_edge (current)
     - by_direction: share W_edge for each of 6 hex directions; build a direction map upfront.

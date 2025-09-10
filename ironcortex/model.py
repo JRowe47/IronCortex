@@ -71,6 +71,8 @@ class CortexReasoner(nn.Module):
             self.d,
             self.R,
             enable_precision_routed_messages=cfg.enable_precision_routed_messages,
+            vectorized=cfg.router_vectorized,
+            edge_transform_mode=cfg.edge_transform_mode,
         )
 
         # Heads & workspace
