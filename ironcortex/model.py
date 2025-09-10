@@ -87,13 +87,19 @@ class CortexReasoner(nn.Module):
         self.plan = PlannerHead(self.d)
         self.critic = CriticHead(self.d)
         self.verify = None
+        self.verify_state = None
         if cfg.enable_energy_verifier:
+            aux_dim = 3 if cfg.enable_ff_energy_alignment else 0
             self.verify = EnergyVerifierHead(
                 self.d,
                 self.V,
                 hidden=self.d,
-                use_attn_energy=cfg.enable_ff_energy_alignment,
+                aux_dim=aux_dim,
             )
+            if cfg.enable_ff_energy_alignment:
+                self.verify_state = RegionFFState()
+                self.register_buffer("E_pos_mean", torch.tensor(0.0), persistent=False)
+                self.register_buffer("E_neg_mean", torch.tensor(0.0), persistent=False)
 
         # Local token mixer (Iron RoPE or Adaptive Filter Attention)
         self.local_mix = LocalTokenMixer(
@@ -143,6 +149,10 @@ class CortexReasoner(nn.Module):
             "surprise_ema": surprise_mean,
             "attn_entropy_mean": attn_entropy,
         }
+        if self.verify_state is not None:
+            metrics["E_pos_mean"] = float(self.E_pos_mean.detach())
+            metrics["E_neg_mean"] = float(self.E_neg_mean.detach())
+            metrics["verifier_tau"] = float(self.verify_state.tau.detach())
         if afa_telem is not None:
             metrics["afa"] = afa_telem
         return metrics
@@ -354,13 +364,20 @@ class CortexReasoner(nn.Module):
         tokens_batch: torch.Tensor,
         K_inner: int,
         focus_batch: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[List[torch.Tensor]]]:
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        List[List[torch.Tensor]],
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         """Run reasoning_loop over a batch of token sequences.
 
         Returns stacked final states, masks, logits, and per-sample traces.
         """
         B = tokens_batch.shape[0]
-        H_list, M_list, L_list, T_list, E_list = [], [], [], [], []
+        H_list, M_list, L_list, T_list, E_list, A_list = [], [], [], [], [], []
         device = tokens_batch.device
         for b in range(B):
             self.detach_state()
@@ -373,10 +390,14 @@ class CortexReasoner(nn.Module):
             L_list.append(logits)
             T_list.append(traces)
             E_list.append(self.local_mix.last_energy.detach())
+            attn = getattr(self.local_mix, "attn", None)
+            ent = getattr(attn, "last_attn_entropy", torch.tensor(0.0))
+            A_list.append(ent.detach())
         return (
             torch.stack(H_list),
             torch.stack(M_list),
             torch.stack(L_list),
             T_list,
             torch.stack(E_list),
+            torch.stack(A_list),
         )

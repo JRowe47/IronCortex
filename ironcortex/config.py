@@ -27,6 +27,7 @@ class CortexConfig:
     enable_forward_forward: bool = True
     debug_metrics_every_n_steps: int = 0
     surprise_lambda: float = 0.0
+    surprise_lambda_schedule: int = 0
     tau_kappa: float = 0.0
     tau_target_prec: float = 1.0
     # Attention debugging: force exact path or threshold for kernel path
