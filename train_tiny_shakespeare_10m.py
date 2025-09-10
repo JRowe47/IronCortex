@@ -30,7 +30,7 @@ class _Args:
 def build_small_model(device: torch.device) -> CortexReasoner:
     """Builds a ~10M parameter model with all experimental flags enabled."""
     cfg = CortexConfig(
-        R=20,
+        R=10,
         d=256,
         V=256,
         K_inner=8,
@@ -44,6 +44,7 @@ def build_small_model(device: torch.device) -> CortexReasoner:
         enable_ff_energy_alignment=True,
         enable_energy_verifier=True,
         enable_forward_forward=True,
+        debug_metrics_every_n_steps=2,
     )
     neighbors = hex_neighbors(cfg.R)
     reg_coords = hex_axial_coords(cfg.R)
