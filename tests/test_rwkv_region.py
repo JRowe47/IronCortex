@@ -73,7 +73,7 @@ def test_direction_norm_unit_and_gradients():
             assert torch.all(torch.isfinite(p.grad))
 
 
-def test_radial_ema_reduces_spikes():
+def test_radial_update_reduces_spikes():
     torch.manual_seed(0)
     d = 8
     cell = RWKVRegionCell(d, m_time_pairs=0, enable_radial_tangential_updates=True)

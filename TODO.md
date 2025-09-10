@@ -107,16 +107,16 @@ Objective: Simplify Kalman‑like updates; support dt>1 fast‑forward; limit pa
 ### Rollback
 - Keep old update under enable_adaptive_filter_dynamics=False.
 
-## Milestone 4 — Radial–Tangential Update: Remove Double Smoothing
+## Milestone 4 — Radial–Tangential Update: Remove Double Smoothing ✅
 
 Objective: Reduce redundancy; keep one smoothing mechanism on the radius.
 
 ### Tasks
-- Single‑stage radius update
+- [x] Single‑stage radius update
   - RG: radial_tangential, radius_var, radius_beta
   - Remove secondary EMA on radius; set radius = radius_upd.
   - If needed, keep small momentum: radius = (1-μ)*radius + μ*radius_upd with μ small (e.g., 0.2).
-- Ensure unit direction
+- [x] Ensure unit direction
   - Normalize dir = y / (||y|| + EPS_DIV); assert abs(||dir|| - 1) < 1e-3 in debug.
 
 ### Acceptance
