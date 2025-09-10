@@ -30,11 +30,15 @@ class RWKVRegionCell(nn.Module):
         *,
         enable_adaptive_filter_dynamics: bool = False,
         enable_radial_tangential_updates: bool = False,
+        afd_noise_mode: str = "scalar",
+        use_predictive_trace: bool = True,
     ):
         super().__init__()
         self.d = d
         self.enable_adaptive_filter_dynamics = enable_adaptive_filter_dynamics
         self.enable_radial_tangential_updates = enable_radial_tangential_updates
+        self.afd_noise_mode = afd_noise_mode
+        self.use_predictive_trace = use_predictive_trace
         self.norm = RMSNorm(d)
         self.r_lin = nn.Linear(d, d, bias=False)
         self.k_lin = nn.Linear(d, d, bias=False)
@@ -43,8 +47,12 @@ class RWKVRegionCell(nn.Module):
         decay = math.sqrt(init_decay)
         raw_init = math.log((1 / decay) - 1)
         self.raw_decay = nn.Parameter(torch.full((d,), raw_init))
-        self.process_noise_param = nn.Parameter(torch.full((d,), -4.0))
-        self.obs_noise_param = nn.Parameter(torch.zeros(d))
+        if afd_noise_mode == "scalar":
+            self.process_noise_param = nn.Parameter(torch.tensor(-4.0))
+            self.obs_noise_param = nn.Parameter(torch.tensor(0.0))
+        else:
+            self.process_noise_param = nn.Parameter(torch.full((d,), -4.0))
+            self.obs_noise_param = nn.Parameter(torch.zeros(d))
         self.register_buffer("state_num", torch.zeros(d), persistent=False)
         self.register_buffer("state_den", torch.zeros(d), persistent=False)
         self.register_buffer("state_var", torch.zeros(d), persistent=False)
@@ -76,12 +84,18 @@ class RWKVRegionCell(nn.Module):
         return torch.exp(self.decay_rate() * dt).clamp_min(EPS_DIV)
 
     def process_noise(self) -> torch.Tensor:
-        return (
+        pn = (
             F.softplus(self.process_noise_param).clamp_min(EPS_DIV).clamp_max(MAX_NOISE)
         )
+        if pn.numel() == 1:
+            pn = pn.expand(self.d)
+        return pn
 
     def obs_noise(self) -> torch.Tensor:
-        return F.softplus(self.obs_noise_param).clamp_min(EPS_DIV).clamp_max(MAX_NOISE)
+        on = F.softplus(self.obs_noise_param).clamp_min(EPS_DIV).clamp_max(MAX_NOISE)
+        if on.numel() == 1:
+            on = on.expand(self.d)
+        return on
 
     def radius_process_noise(self) -> torch.Tensor:
         return (
@@ -97,17 +111,14 @@ class RWKVRegionCell(nn.Module):
             .clamp_max(MAX_NOISE)
         )
 
-    def fast_forward(self):
-        if self.dt == 0:
+    def fast_forward(self, dt: int):
+        if dt <= 0:
             return
-        lam = self.decay(dt=self.dt)
+        lam = self.decay(dt=dt)
         self.state_num = self.state_num * lam
         self.state_den = self.state_den * lam
         if self.enable_adaptive_filter_dynamics:
-            self.state_var = (
-                self.state_var * lam.pow(2) + self.process_noise() * self.dt
-            )
-        self.dt = 0
+            self.state_var = self.state_var * lam.pow(2) + self.process_noise() * dt
 
     def skip(self):
         self.dt += 1
@@ -116,13 +127,16 @@ class RWKVRegionCell(nn.Module):
         """Update predictive trace from router messages when inactive.
 
         alpha controls decay of the previous trace."""
+        if not self.use_predictive_trace:
+            return
         self.pred = alpha * self.pred + (1.0 - alpha) * msg
 
     def detach_state(self):
         """Detach fast-weight buffers to prevent graph ties across steps."""
         self.state_num = self.state_num.detach()
         self.state_den = self.state_den.detach()
-        self.pred = self.pred.detach()
+        if self.use_predictive_trace:
+            self.pred = self.pred.detach()
         self.state_var = self.state_var.detach()
         self.radius = self.radius.detach()
         self.radius_var = self.radius_var.detach()
@@ -142,10 +156,13 @@ class RWKVRegionCell(nn.Module):
 
         x_in: [d] input vector, step_pos_scalar ∈ [0,1] inner-step position
         """
-        x = self.norm(x_in + self.pred)
-        # Clear predictive trace after use
-        self.pred.zero_()
-        self.fast_forward()
+        if self.use_predictive_trace:
+            x = self.norm(x_in + self.pred)
+            self.pred.zero_()
+        else:
+            x = self.norm(x_in)
+        self.fast_forward(self.dt + 1)
+        self.dt = 0
         r = torch.sigmoid(self.r_lin(x))
         k = self.k_lin(x)  # keep unrotated (exp(k) >= 0)
         v = self.v_lin(x)
@@ -156,23 +173,23 @@ class RWKVRegionCell(nn.Module):
             c, s = torch.cos(Θ), torch.sin(Θ)
             v = rope_rotate_pairs(v, c, s, self.m_time)
 
-        lam = self.decay()
         w = torch.exp(k.clamp_max(MAX_EXP))  # positive
 
         if self.enable_adaptive_filter_dynamics:
-            prior_num = self.state_num * lam
-            prior_den = self.state_den * lam
-            prior_var = self.state_var * lam.pow(2) + self.process_noise()
+            prior_num = self.state_num
+            prior_den = self.state_den
+            prior_var = self.state_var
             pred = prior_num / (prior_den + EPS_DIV)
             msg = w * v
             resid = msg - pred
-            obs_var = torch.exp((-k).clamp_max(MAX_EXP)) * self.obs_noise()
-            gain = prior_var / (prior_var + obs_var + EPS_DIV)
+            obs_var = torch.exp((-k).clamp_max(MAX_EXP)) * self.obs_noise() + EPS_DIV
+            gain = prior_var / (prior_var + obs_var)
+            gain = gain.clamp(EPS_DIV, 1 - EPS_DIV)
             new_state = pred + gain * resid
             self.state_num = new_state * (prior_den + w)
             self.state_den = prior_den + w
             self.state_var = (1 - gain) * prior_var
-            state_prec = (prior_var + obs_var + EPS_DIV).reciprocal()
+            state_prec = (prior_var + obs_var).reciprocal()
             surprise = (resid.pow(2) * state_prec).sum()
             self.surprise_ema = (
                 self.surprise_beta * self.surprise_ema
@@ -180,8 +197,8 @@ class RWKVRegionCell(nn.Module):
             )
             y = r * new_state
         else:
-            self.state_num = self.state_num * lam + w * v
-            self.state_den = self.state_den * lam + w
+            self.state_num = self.state_num + w * v
+            self.state_den = self.state_den + w
             y = r * (self.state_num / (self.state_den + EPS_DIV))  # [d]
 
         if self.enable_radial_tangential_updates:

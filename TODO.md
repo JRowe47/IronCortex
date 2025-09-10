@@ -82,21 +82,21 @@ Objective: Replace nested loops with batched message passing; fuse robust weight
 ### Rollback
 - Keep old loop under CFG.router_vectorized=False.
 
-## Milestone 3 — Adaptive Filter Dynamics: Streamline & Stabilize
+## Milestone 3 — Adaptive Filter Dynamics: Streamline & Stabilize ✅
 
 Objective: Simplify Kalman‑like updates; support dt>1 fast‑forward; limit parameter explosion.
 
 ### Tasks
-- Fast‑forward prior
+- [x] Fast‑forward prior
   - RG: RWKVRegionCell, state_num/state_den, dt
   - Implement fast_forward(dt) that updates mean & variance with decay = exp(decay_vec*dt); reuses same function for dt=1.
-- Scalar vs. vector noise options
+- [x] Scalar vs. vector noise options
   - Add CFG.afd_noise_mode ∈ {'scalar','vector'}; default 'scalar' for stability.
   - If scalar: process_noise and obs_noise are scalars per region or per head.
-- Gain computation
+- [x] Gain computation
   - Keep obs_var = exp(-k)*obs_noise + EPS_DIV.
   - Clamp gain to [0, 1]; avoid exact 0 or 1.
-- Predictive trace simplification
+- [x] Predictive trace simplification
   - RG: pred or predictive buffer in region cell
   - Ablation switch: CFG.use_predictive_trace. If False, remove predictive accumulation and rely on prior variance growth when inactive.
 
