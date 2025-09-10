@@ -12,8 +12,6 @@ def test_trivial_reduces_to_dot_product():
         d_model=D,
         n_head=1,
         alpha=0.0,
-        sigma_proc=0.0,
-        eta_obs=0.0,
         exact_threshold=0,
     )
     with torch.no_grad():

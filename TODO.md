@@ -227,15 +227,15 @@ Objective: Make performance visible; ensure robustness.
 ### Rollback
 - Telemetry gated; no effect when disabled.
 
-## Milestone 10 — Decomplexity & Docs Cleanup
+## Milestone 10 — Decomplexity & Docs Cleanup ✅
 
 Objective: Remove or quarantine unused paths; align docs.
 
 ### Tasks
-- Prune unused code
+- [x] Prune unused code
   - RG: pairwise_precision (unused), legacy anchors when AFA on, duplicate loops.
   - Delete or @deprecated mark and move to legacy/.
-- Docs
+- [x] Docs
   - Update README / design docs to reflect flags and recommended defaults.
   - Add a Feature Matrix table: what each flag does and when to enable.
 

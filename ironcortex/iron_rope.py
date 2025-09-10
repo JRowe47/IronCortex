@@ -323,6 +323,16 @@ class LocalTokenMixer(nn.Module):
     ) -> torch.Tensor:
         B, T, d = tok_emb.shape
         device = tok_emb.device
+
+        if not self.use_anchors:
+            Y = self.attn(tok_emb)
+            pooled = masked_mean(Y, focus_mask)  # [B,d]
+            attn_energy = getattr(
+                self.attn, "last_attn_energy", torch.tensor(0.0, device=device)
+            )
+            self.last_energy = attn_energy.detach()
+            return pooled
+
         X_list, C_list, UM_list = [], [], []
         for b in range(B):
             x = tok_emb[b]  # [T,d]

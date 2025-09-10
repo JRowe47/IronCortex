@@ -148,11 +148,10 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 * [x] Create `iron_cortex/attention/adaptive_filter_attention.py`:
 
   * Class `AdaptiveFilterAttention(heads, d_model, dt, ...)`.
-  * Params: `alpha (decay)`, `sigma_proc`, `eta_obs`, optional `omega` per head.
+  * Params: `alpha (decay)`, optional `omega` per head.
   * Methods:
 
     * `build_time_kernels(T)` → precompute `e^{AΔtτ}` for τ (Toeplitz or FFT conv).
-    * `pairwise_precision(|i-j|)` → closed‑form scalar precision per lag.
     * `forward(q, k, v, mask)`:
 
       1. Propagate `k`/`v` to query times using kernels (convolutional application).
@@ -213,7 +212,7 @@ This document outlines the milestones and tasks for integrating Adaptive Filter 
 ### 6.1 Telemetry
 
 * [x] Log per‑region: `state_var/prec`, `surprise_ema`, routing weights stats (mean, entropy).
-* [x] Log AFA: `alpha`, `sigma_proc`, `eta_obs`, kernel norms.
+* [x] Log AFA: `alpha`, kernel norms.
 
 ### 6.2 Unit Tests
 

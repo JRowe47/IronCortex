@@ -19,8 +19,6 @@ class AdaptiveFilterAttention(nn.Module):
         n_head: int,
         dt: float = 1.0,
         alpha: float = 0.0,
-        sigma_proc: float = 0.0,
-        eta_obs: float = 0.0,
         *,
         debug_exact: bool = False,
         exact_threshold: int = 64,
@@ -32,10 +30,8 @@ class AdaptiveFilterAttention(nn.Module):
         self.head_dim = d_model // n_head
         self.scale = self.head_dim**-0.5
         self.dt = dt
-        # Parameters controlling temporal decay / precision.
+        # Parameter controlling temporal decay.
         self.alpha = nn.Parameter(torch.tensor(alpha))
-        self.sigma_proc = nn.Parameter(torch.tensor(sigma_proc))
-        self.eta_obs = nn.Parameter(torch.tensor(eta_obs))
         self.debug_exact = debug_exact
         self.exact_threshold = exact_threshold
 
@@ -59,12 +55,6 @@ class AdaptiveFilterAttention(nn.Module):
             self._kernel_cache[key] = kernel
         return kernel
 
-    def pairwise_precision(self, lags: torch.Tensor) -> torch.Tensor:
-        """Simple exponential precision falloff with distance."""
-        return torch.exp((-self.eta_obs * lags * self.dt).clamp_max(MAX_EXP)) / (
-            self.sigma_proc + EPS_DIV
-        )
-
     def _exact_path(
         self,
         q: torch.Tensor,
@@ -77,7 +67,7 @@ class AdaptiveFilterAttention(nn.Module):
         kernels = self.build_time_kernels(T)
         idx = torch.arange(T, device=q.device)
         lag = (idx.view(1, 1, T, 1) - idx.view(1, 1, 1, T)).abs()
-        decay = kernels[lag] * self.pairwise_precision(lag)
+        decay = kernels[lag]
         self.last_kernel_norm = decay.norm().detach()
         scores = scores * decay
         if mask is not None:
@@ -132,8 +122,6 @@ class AdaptiveFilterAttention(nn.Module):
         """Return telemetry metrics for logging."""
         return {
             "alpha": float(self.alpha.detach()),
-            "sigma_proc": float(self.sigma_proc.detach()),
-            "eta_obs": float(self.eta_obs.detach()),
             "kernel_norm": float(self.last_kernel_norm),
             "attn_entropy_mean": float(self.last_attn_entropy),
         }
