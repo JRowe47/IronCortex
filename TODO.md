@@ -134,12 +134,12 @@ Objective: Replace O(T²) attention with convolutional/state‑space AFA.
 - [x] Kernel builder & cache
   - RG: AdaptiveFilterAttention, pairwise_precision, forward
   - Implement build_time_kernels(T) → returns lag kernels for e^{AΔtτ}; cache by (T, α, ω).
-- [ ] Depthwise convolution path
+ - [x] Depthwise convolution path
   - Convolve K or V along time per head with the kernel (FFT or causal 1D convolution).
   - Replace explicit T×T weight matrix with kernelized propagation + local normalization.
 - [x] Robust weighting
   - Optionally compute residual‑based scalars per lag (precomputed pairwise_precision(τ)), multiply into kernel before convolution.
-- [ ] Fallback & parity
+ - [x] Fallback & parity
   - If T <= T_small or CFG.debug_exact, fall back to exact dot‑product path.
   - Unit test: with α=0, σ=0 → outputs match dot‑product attention (±1e‑4).
 
