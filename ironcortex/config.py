@@ -29,3 +29,6 @@ class CortexConfig:
     surprise_lambda: float = 0.0
     tau_kappa: float = 0.0
     tau_target_prec: float = 1.0
+    # Attention debugging: force exact path or threshold for kernel path
+    debug_exact: bool = False
+    afa_exact_threshold: int = 64

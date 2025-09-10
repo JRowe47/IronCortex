@@ -9,7 +9,12 @@ def test_trivial_reduces_to_dot_product():
     B, T, D = 1, 4, 8
     x = torch.randn(B, T, D)
     afa = AdaptiveFilterAttention(
-        d_model=D, n_head=1, alpha=0.0, sigma_proc=0.0, eta_obs=0.0
+        d_model=D,
+        n_head=1,
+        alpha=0.0,
+        sigma_proc=0.0,
+        eta_obs=0.0,
+        exact_threshold=0,
     )
     with torch.no_grad():
         eye = torch.eye(D)
