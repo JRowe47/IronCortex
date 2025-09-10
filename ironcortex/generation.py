@@ -63,9 +63,24 @@ def generate(
             ):
                 break
 
-        energy = model.verify(
-            motor_state, probs, attn_energy=model.local_mix.last_energy
+        aux = (
+            torch.stack(
+                [
+                    model.local_mix.last_energy.detach(),
+                    torch.stack([r.surprise_ema for r in model.regions])
+                    .mean()
+                    .to(device),
+                    getattr(
+                        model.local_mix.attn,
+                        "last_attn_entropy",
+                        torch.tensor(0.0, device=device),
+                    ).detach(),
+                ]
+            )
+            if model.cfg.enable_ff_energy_alignment
+            else None
         )
+        energy = model.verify(motor_state, probs, aux=aux)
         if (best_energy is None) or (energy < best_energy):
             best_energy = energy
             best_tokens = tokens.clone()
