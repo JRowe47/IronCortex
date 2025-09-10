@@ -39,6 +39,19 @@ tests/
 train_tiny_shakespeare.py  # Example training script
 ```
 
+## Feature Flags
+
+| Flag | Default | Purpose | When to enable |
+| --- | --- | --- | --- |
+| `enable_adaptive_filter_dynamics` | `False` | Kalman‑style state updates in regions | Exploring adaptive dynamics |
+| `enable_precision_routed_messages` | `False` | Robust, precision‑weighted routing | Studying noisy or adversarial inputs |
+| `enable_radial_tangential_updates` | `False` | Split magnitude and direction updates | Improving norm stability |
+| `enable_afa_attention` | `False` | Adaptive Filter Attention replaces anchor tokens | Long sequences or experimenting with AFA |
+| `enable_ff_energy_alignment` | `False` | Couples energy signals with Forward‑Forward goodness | When using energy verifier |
+| `train_deterministic_inner_loop` | `False` | Fixed inner loop for reproducible training | Deterministic experiments |
+
+All flags live in `CortexConfig` and default to the values above. Unless you're researching the corresponding feature, the defaults are recommended for stability.
+
 ## Model Architecture
 
 IronCortex is a GAN‑MoE, energy‑based, diffusion‑augmented RWKV‑Transformer that learns online with Forward‑Forward over a six‑stage cortical routing stack. Its computation is built from Numenta‑inspired columnar nodes (minicolumns) that cluster into topographic regions; each node is an RWKV state cell with persistent fast‑weights and a predictive trace, and regions communicate over a cortical graph. A sparse‑distributed representation (SDR) is enforced by k‑Winners‑Take‑All and homeostatic gating: at every micro‑step a mixture‑of‑experts router selects a small top‑k set of regions to activate using neighbor‑suppressed competition, usefulness priors (gain EMA), uncertainty cues, and value bias from a learned critic. Inter‑region messages use IronRoPE geometric routing—a capsule‑style, routing‑by‑agreement mechanism that combines relative/rotational position coding with learned edge transforms—providing six “layers/hops” of iterative plan → route → update → verify → act → halt processing within each token’s inner loop (with optional branch/beam maintenance and early‑exit on confidence). A lightweight workspace/blackboard lets active regions write and read shared slots for latent, native reasoning, while motor/sensor heads interface with token prediction. Inputs use byte‑patch tokenization (byte‑level units with local patching) and a compact local attention/RWKV fusion for context ingestion. Training is multi‑objective: (1) Forward‑Forward goodness per region with adaptive thresholds τ separates positive vs corrupted sequences; (2) denoising / masked‑token reconstruction and replaced‑token detection (RTD) teach linguistic structure; (3) a value critic predicts expected goodness‑gain to guide compute allocation; (4) an energy‑based verifier learns low E_pos / high E_neg consistency for predictions and also scores branches; (5) a lightweight adversarial (GAN) discriminator/critic regularizes generative outputs; and (6) standard cross‑entropy / perplexity monitor end‑to‑end language modeling. Generation couples the token head with a diffusion refiner that iteratively denoises logits/latents under energy guidance, yielding proposals that are re‑scored by the verifier and the cortical planner. Core telemetry (ff, rtd, denoise, critic, verify, E_pos/E_neg, gain_mean, tau_mean, cross_entropy, perplexity) tracks region specialization, compute efficiency, and model certainty as the system self‑organizes a thousand‑brains–style ensemble: many columnar specialists forming consensus via recurrent, sparse, geometrically routed communication.
