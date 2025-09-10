@@ -405,14 +405,27 @@ class CortexReasoner(nn.Module):
                     )
                 )
 
+                aux = (
+                    torch.stack(
+                        [
+                            self.local_mix.last_energy.detach(),
+                            torch.stack([r.surprise_ema for r in self.regions])
+                            .mean()
+                            .to(motor_state.device),
+                            getattr(
+                                self.local_mix.attn,
+                                "last_attn_entropy",
+                                torch.tensor(0.0, device=motor_state.device),
+                            ).detach(),
+                        ]
+                    )
+                    if self.cfg.enable_ff_energy_alignment
+                    else None
+                )
                 ver_energy = self.verify(
                     motor_state,
                     F.softmax(logits.detach(), dim=-1),
-                    attn_energy=(
-                        self.local_mix.last_energy
-                        if self.cfg.enable_ff_energy_alignment
-                        else None
-                    ),
+                    aux=aux,
                 )
                 verify_score = -ver_energy
                 # Estimate Δgoodness (local): g(H_cur) - g(H_prev)
