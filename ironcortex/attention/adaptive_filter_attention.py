@@ -21,6 +21,9 @@ class AdaptiveFilterAttention(nn.Module):
         alpha: float = 0.0,
         sigma_proc: float = 0.0,
         eta_obs: float = 0.0,
+        use_kernel: bool = True,
+        exact_threshold: int = 128,
+        debug_exact: bool = False,
     ):
         super().__init__()
         assert d_model % n_head == 0
@@ -29,6 +32,9 @@ class AdaptiveFilterAttention(nn.Module):
         self.head_dim = d_model // n_head
         self.scale = self.head_dim**-0.5
         self.dt = dt
+        self.use_kernel = use_kernel
+        self.exact_threshold = exact_threshold
+        self.debug_exact = debug_exact
         # Parameters controlling temporal decay / precision.
         self.alpha = nn.Parameter(torch.tensor(alpha))
         self.sigma_proc = nn.Parameter(torch.tensor(sigma_proc))
@@ -40,17 +46,28 @@ class AdaptiveFilterAttention(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
         self.register_buffer("last_attn_energy", torch.tensor(0.0), persistent=False)
         self.register_buffer("last_kernel_norm", torch.tensor(0.0), persistent=False)
+        # Cache for time kernels keyed by (T, alpha, dt)
+        self._kernel_cache: dict[tuple[int, float, float], torch.Tensor] = {}
 
     def build_time_kernels(self, T: int) -> torch.Tensor:
-        """Return a kernel ``k[t] = exp(-alpha * t * dt)`` for ``t`` in ``[0, T)``."""
-        device = self.alpha.device
-        tau = torch.arange(T, device=device, dtype=torch.float32)
-        return torch.exp(-self.alpha * tau * self.dt)
+        """Return a cached decay kernel ``k[t] = exp(-alpha * t * dt)``."""
+        key = (T, float(self.alpha.item()), float(self.dt))
+        kernel = self._kernel_cache.get(key)
+        if kernel is None:
+            device = self.alpha.device
+            tau = torch.arange(T, device=device, dtype=torch.float32)
+            kernel = torch.exp(-self.alpha * tau * self.dt)
+            self._kernel_cache[key] = kernel
+        return kernel
 
     def pairwise_precision(self, lags: torch.Tensor) -> torch.Tensor:
-        """Simple exponential precision falloff with distance."""
-        return torch.exp((-self.eta_obs * lags * self.dt).clamp_max(MAX_EXP)) / (
-            self.sigma_proc + EPS_DIV
+        """Simple exponential precision falloff with distance.
+
+        When ``sigma_proc`` and ``eta_obs`` are both zero, this returns ones so
+        that the module reduces exactly to dot-product attention.
+        """
+        return torch.exp(
+            (-self.eta_obs * lags * self.dt - self.sigma_proc).clamp_max(MAX_EXP)
         )
 
     def forward(
@@ -66,30 +83,66 @@ class AdaptiveFilterAttention(nn.Module):
         k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
-        scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # [B,H,T,T]
+        use_exact = self.debug_exact or not self.use_kernel or T <= self.exact_threshold
 
-        # apply temporal decay based on |i-j|
-        kernels = self.build_time_kernels(T)  # [T]
-        self.last_kernel_norm = kernels.norm().detach()
-        idx = torch.arange(T, device=x.device)
-        lag = (idx.view(1, 1, T, 1) - idx.view(1, 1, 1, T)).abs()
-        decay = kernels[lag]
-        scores = scores * decay
+        if use_exact:
+            scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # [B,H,T,T]
 
-        if mask is not None:
-            if mask.dim() == 3:
-                mask = mask.unsqueeze(1)
-            scores = scores.masked_fill(mask == 0, -MAX_EXP)
-        attn = F.softmax(scores, dim=-1)
-        if mask is not None:
-            attn = attn * mask
-            z = attn.sum(dim=-1, keepdim=True).clamp_min(EPS_DIV)
-            attn = attn / z
-        self.last_attn_energy = (-(attn + EPS_LOG).log().mean()).detach()
-        self.last_attn_entropy = (
-            (-(attn + EPS_LOG).log() * attn).sum(dim=-1).mean().detach()
+            # apply temporal decay based on |i-j|
+            kernels = self.build_time_kernels(T)  # [T]
+            idx = torch.arange(T, device=x.device)
+            lag = (idx.view(1, 1, T, 1) - idx.view(1, 1, 1, T)).abs()
+            decay = kernels[lag] * self.pairwise_precision(lag)
+            self.last_kernel_norm = decay.norm().detach()
+            scores = scores * decay
+
+            if mask is not None:
+                if mask.dim() == 3:
+                    mask = mask.unsqueeze(1)
+                scores = scores.masked_fill(mask == 0, -MAX_EXP)
+            attn = F.softmax(scores, dim=-1)
+            if mask is not None:
+                attn = attn * mask
+                z = attn.sum(dim=-1, keepdim=True).clamp_min(EPS_DIV)
+                attn = attn / z
+            self.last_attn_energy = (-(attn + EPS_LOG).log().mean()).detach()
+            self.last_attn_entropy = (
+                (-(attn + EPS_LOG).log() * attn).sum(dim=-1).mean().detach()
+            )
+            out = torch.matmul(attn, v)  # [B,H,T,D]
+            out = out.transpose(1, 2).contiguous().view(B, T, self.d_model)
+            return self.out_proj(out)
+
+        # Linear-time depthwise convolution path
+        kernel = self.build_time_kernels(T) * self.pairwise_precision(
+            torch.arange(T, device=x.device)
         )
-        out = torch.matmul(attn, v)  # [B,H,T,D]
+        kernel = kernel.view(1, 1, -1).flip(-1)  # causal conv
+        self.last_kernel_norm = kernel.norm().detach()
+
+        k_seq = k.reshape(B * self.n_head, self.head_dim, T)
+        v_seq = v.reshape(B * self.n_head, self.head_dim, T)
+        q_seq = q  # [B,H,T,D]
+
+        k_conv = F.conv1d(k_seq, kernel, padding=T - 1, groups=self.head_dim)[..., :T]
+        v_conv = F.conv1d(v_seq, kernel, padding=T - 1, groups=self.head_dim)[..., :T]
+        k_conv = k_conv.view(B, self.n_head, self.head_dim, T).transpose(2, 3)
+        v_conv = v_conv.view(B, self.n_head, self.head_dim, T).transpose(2, 3)
+
+        denom = F.conv1d(
+            torch.ones(B * self.n_head, 1, T, device=x.device, dtype=x.dtype),
+            kernel,
+            padding=T - 1,
+        )[..., :T]
+        denom = denom.view(B, self.n_head, 1, T).transpose(2, 3)
+
+        scores = (q_seq * k_conv).sum(-1, keepdim=True) * self.scale
+        attn = scores / (denom + EPS_DIV)
+
+        self.last_attn_energy = scores.mean().detach()
+        self.last_attn_entropy = torch.tensor(0.0, device=x.device)
+
+        out = attn * v_conv
         out = out.transpose(1, 2).contiguous().view(B, T, self.d_model)
         return self.out_proj(out)
 
