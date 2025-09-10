@@ -52,6 +52,18 @@ def train_step(
 
     optimizer.zero_grad()
 
+    step = getattr(model, "_train_step", 0) + 1
+    model._train_step = step
+    if model.cfg.enable_ff_energy_alignment:
+        if model.cfg.surprise_lambda_schedule > 0:
+            warm = min(1.0, step / model.cfg.surprise_lambda_schedule)
+        else:
+            warm = 1.0
+        lam_s = model.cfg.surprise_lambda * warm
+    else:
+        lam_s = 0.0
+    model._lambda_s = lam_s
+
     # Prepare negative/corrupted streams for the whole batch.
     neg_tokens = []
     focus_maps = []
@@ -75,22 +87,37 @@ def train_step(
     focus_all = torch.cat([focus_pos, focus_neg], dim=0)
 
     # Run the reasoning loop once over all sequences (pos & neg).
-    H_all, reg_all, logits_all, _traces, energy_all = model.reasoning_loop_batch(
-        tokens_all, model.cfg.K_inner, focus_all
-    )
+    (
+        H_all,
+        reg_all,
+        logits_all,
+        _traces,
+        energy_all,
+        entropy_all,
+    ) = model.reasoning_loop_batch(tokens_all, model.cfg.K_inner, focus_all)
 
     H_pos, H_neg = H_all[:B], H_all[B:]
     reg_mask_p, reg_mask_n = reg_all[:B], reg_all[B:]
     logits_pos, logits_neg = logits_all[:B], logits_all[B:]
     attn_energy_pos, attn_energy_neg = energy_all[:B], energy_all[B:]
+    attn_entropy_pos, attn_entropy_neg = entropy_all[:B], entropy_all[B:]
 
     # Cross-entropy on final token (monitoring only).
     ce_loss = F.cross_entropy(logits_pos, clean_tokens[:, -1])
 
+    mean_surprise = (
+        torch.stack([r.surprise_ema for r in model.regions]).mean().to(device)
+    )
+    if model.cfg.enable_ff_energy_alignment:
+        ms_vec = mean_surprise.expand(B)
+        aux_pos = torch.stack([attn_energy_pos, ms_vec, attn_entropy_pos], dim=-1)
+        aux_neg = torch.stack([attn_energy_neg, ms_vec, attn_entropy_neg], dim=-1)
+    else:
+        aux_pos = aux_neg = None
+
     # -------- FF per-region losses (using final states) --------
     ff_loss = torch.tensor(0.0, device=device)
     hebbian_updates = []
-    lam_s = model.cfg.surprise_lambda if model.cfg.enable_ff_energy_alignment else 0.0
     if model.cfg.enable_forward_forward:
         for r in range(model.R):
             hpos = H_pos[:, r, :]
@@ -165,9 +192,19 @@ def train_step(
     if model.verify is not None and model.cfg.enable_energy_verifier:
         y_pos = F.one_hot(clean_tokens[:, -1], num_classes=model.V).float()
         y_neg = F.softmax(logits_neg.detach(), dim=-1)
-        E_pos = model.verify(motor_pos.detach(), y_pos, attn_energy=attn_energy_pos)
-        E_neg = model.verify(motor_neg.detach(), y_neg, attn_energy=attn_energy_neg)
-        verifier_loss = ff_energy_loss(E_pos, E_neg, tau=0.0)
+        tau_v = 0.0
+        if model.cfg.enable_ff_energy_alignment and model.verify_state is not None:
+            tau_v = model.verify_state.tau
+        E_pos = model.verify(motor_pos.detach(), y_pos, aux=aux_pos)
+        E_neg = model.verify(motor_neg.detach(), y_neg, aux=aux_neg)
+        verifier_loss = ff_energy_loss(E_pos, E_neg, tau=tau_v)
+        if model.cfg.enable_ff_energy_alignment and model.verify_state is not None:
+            Ep = E_pos.mean().detach()
+            En = E_neg.mean().detach()
+            model.E_pos_mean = 0.99 * model.E_pos_mean + 0.01 * Ep
+            model.E_neg_mean = 0.99 * model.E_neg_mean + 0.01 * En
+            mid = 0.5 * (model.E_pos_mean + model.E_neg_mean)
+            model.verify_state.update_tau(mid)
     else:
         E_pos = torch.zeros_like(attn_energy_pos)
         E_neg = torch.zeros_like(attn_energy_neg)
@@ -199,6 +236,7 @@ def train_step(
         "verify": float(verifier_loss.detach().item()),
         "E_pos": float(E_pos.detach().mean().item()),
         "E_neg": float(E_neg.detach().mean().item()),
+        "lambda_s": float(lam_s),
         "ce_last": float(ce_loss.detach().item()),
         "total": float(total.detach().item()),
     }

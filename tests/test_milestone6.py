@@ -28,6 +28,8 @@ def test_no_nans_grad_flow_and_telemetry():
         enable_radial_tangential_updates=True,
         enable_afa_attention=True,
         enable_ff_energy_alignment=True,
+        surprise_lambda=1.0,
+        surprise_lambda_schedule=10,
     )
     neighbors = hex_neighbors(cfg.R)
     reg_coords = hex_axial_coords(cfg.R)
@@ -46,6 +48,9 @@ def test_no_nans_grad_flow_and_telemetry():
     telem = model.telemetry()
     assert "regions" in telem and len(telem["regions"]) == cfg.R
     assert "routing_weight_mean" in telem
+    assert metrics["lambda_s"] > 0
+    assert model.verify_state is not None and model.verify_state.tau.item() >= 0
+    assert getattr(model.verify, "aux_dim", 0) == 3
 
 
 def test_edge_cases_router_and_attention():

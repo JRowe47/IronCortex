@@ -150,17 +150,17 @@ Objective: Replace O(T²) attention with convolutional/state‑space AFA.
 ### Rollback
 - Flag‑guarded; keep current attention as fallback.
 
-## Milestone 6 — FF Energy Alignment: Adaptive Thresholds & Signals
+## Milestone 6 — FF Energy Alignment: Adaptive Thresholds & Signals ✅
 
 Objective: Stabilize and make energy signals more informative.
 
 ### Tasks
-- Adaptive verifier threshold
+- [x] Adaptive verifier threshold
   - Track running means E_pos_mean, E_neg_mean; set verifier τ midway or use region τ ensemble.
   - Make τ learnable with EMA target.
-- Surprise scaling schedule
+- [x] Surprise scaling schedule
   - Add CFG.surprise_lambda_schedule: start at 0; linear warmup over N steps to target λ.
-- Aux features
+- [x] Aux features
   - Feed mean_region_surprise, attn_entropy_mean (or per‑token stats) into verifier head (gated by feature flag).
 
 ### Acceptance

@@ -36,7 +36,7 @@ def evaluate_perplexity(
     ctx = tokens[:, :-1]
     targets = tokens[:, -1]
     focus = torch.zeros(B, T - 1, dtype=torch.bool, device=device)
-    _, _, logits, _, _ = model.reasoning_loop_batch(ctx, model.cfg.K_inner, focus)
+    _, _, logits, _, _, _ = model.reasoning_loop_batch(ctx, model.cfg.K_inner, focus)
     log_probs = F.log_softmax(logits, dim=-1)
     ce = F.nll_loss(log_probs, targets, reduction="mean").item()
     ppl = float(math.exp(ce))

@@ -9,12 +9,10 @@ import torch.nn as nn
 class EnergyVerifierHead(nn.Module):
     """Tiny MLP producing a scalar energy given context and prediction."""
 
-    def __init__(
-        self, ctx_dim: int, y_dim: int, hidden: int, *, use_attn_energy: bool = False
-    ):
+    def __init__(self, ctx_dim: int, y_dim: int, hidden: int, *, aux_dim: int = 0):
         super().__init__()
-        self.use_attn_energy = use_attn_energy
-        in_dim = ctx_dim + y_dim + (1 if use_attn_energy else 0)
+        self.aux_dim = aux_dim
+        in_dim = ctx_dim + y_dim + aux_dim
         self.net = nn.Sequential(
             nn.LayerNorm(in_dim),
             nn.Linear(in_dim, hidden),
@@ -28,22 +26,22 @@ class EnergyVerifierHead(nn.Module):
         self,
         ctx: torch.Tensor,
         y_hat: torch.Tensor,
-        attn_energy: torch.Tensor | None = None,
+        aux: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        if self.use_attn_energy:
-            if attn_energy is None:
+        if self.aux_dim > 0:
+            if aux is None:
                 if ctx.dim() == 1:
-                    attn_energy = torch.zeros(1, device=ctx.device, dtype=ctx.dtype)
+                    aux = torch.zeros(self.aux_dim, device=ctx.device, dtype=ctx.dtype)
                 else:
-                    attn_energy = torch.zeros(
-                        ctx.shape[0], device=ctx.device, dtype=ctx.dtype
+                    aux = torch.zeros(
+                        ctx.shape[0], self.aux_dim, device=ctx.device, dtype=ctx.dtype
                     )
-            if attn_energy.dim() == 0:
-                attn_energy = attn_energy.expand(1)
             if ctx.dim() == 1:
-                z = torch.cat([ctx, y_hat, attn_energy.reshape(1)], dim=-1)
+                z = torch.cat([ctx, y_hat, aux.view(-1)], dim=-1)
             else:
-                z = torch.cat([ctx, y_hat, attn_energy.unsqueeze(-1)], dim=-1)
+                if aux.dim() == 1:
+                    aux = aux.unsqueeze(0).expand(ctx.shape[0], -1)
+                z = torch.cat([ctx, y_hat, aux], dim=-1)
         else:
             z = torch.cat([ctx, y_hat], dim=-1)
         return self.net(z).squeeze(-1)
