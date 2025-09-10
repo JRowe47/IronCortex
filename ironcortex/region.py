@@ -219,8 +219,9 @@ class RWKVRegionCell(nn.Module):
             norm = y.norm(2, dim=-1, keepdim=True).clamp_min(EPS_DIV)
             dir = y / norm
             if __debug__:
-                dir_norm = dir.norm().detach()
-                assert abs(dir_norm.item() - 1.0) < 1e-3
+                dir_norm = dir.norm().detach().item()
+                if norm.item() > EPS_DIV:
+                    assert abs(dir_norm - 1.0) < 1e-3
             self.last_dir = dir.detach()
             self.last_norm = norm.detach()
             h_dir = self.o_lin(dir)
