@@ -81,3 +81,51 @@ def test_radial_ema_reduces_spikes():
     spike = 10 * torch.ones(d)
     cell.step(spike, 0.0)
     assert cell.radius.item() < cell.last_norm.item()
+
+
+def test_scalar_noise_mode_broadcasts():
+    d = 4
+    cell = RWKVRegionCell(d, m_time_pairs=0, enable_adaptive_filter_dynamics=True)
+    assert cell.process_noise_param.shape == ()
+    assert cell.process_noise().shape == (d,)
+    cell_vec = RWKVRegionCell(
+        d,
+        m_time_pairs=0,
+        enable_adaptive_filter_dynamics=True,
+        afd_noise_mode="vector",
+    )
+    assert cell_vec.process_noise_param.shape == (d,)
+    assert cell_vec.process_noise().shape == (d,)
+
+
+def test_fast_forward_dt_updates_buffers():
+    torch.manual_seed(0)
+    d = 4
+    cell = RWKVRegionCell(d, m_time_pairs=0, enable_adaptive_filter_dynamics=True)
+    cell.state_num.fill_(1.0)
+    cell.state_den.fill_(1.0)
+    cell.state_var.fill_(0.5)
+    pn = cell.process_noise()
+    dt = 3
+    lam = cell.decay(dt=dt)
+    cell.fast_forward(dt)
+    assert torch.allclose(cell.state_num, lam)
+    assert torch.allclose(cell.state_den, lam)
+    expected_var = 0.5 * lam.pow(2) + pn * dt
+    assert torch.allclose(cell.state_var, expected_var)
+
+
+def test_predictive_trace_toggle():
+    d = 4
+    cell = RWKVRegionCell(
+        d,
+        m_time_pairs=0,
+        enable_adaptive_filter_dynamics=False,
+        use_predictive_trace=False,
+    )
+    msg = torch.ones(d)
+    cell.predict(msg)
+    assert torch.all(cell.pred == 0)
+    x = torch.randn(d)
+    cell.step(x, 0.0)
+    assert torch.all(cell.pred == 0)

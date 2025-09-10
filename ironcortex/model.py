@@ -59,6 +59,8 @@ class CortexReasoner(nn.Module):
                     init_decay=cfg.init_decay,
                     enable_adaptive_filter_dynamics=cfg.enable_adaptive_filter_dynamics,
                     enable_radial_tangential_updates=cfg.enable_radial_tangential_updates,
+                    afd_noise_mode=cfg.afd_noise_mode,
+                    use_predictive_trace=cfg.use_predictive_trace,
                 )
                 for _ in range(self.R)
             ]
@@ -201,7 +203,8 @@ class CortexReasoner(nn.Module):
         for r in range(self.R):
             if not bool(reg_mask[r]):
                 # Update predictive trace from messages but skip actual update
-                self.regions[r].predict(M[r])
+                if self.cfg.use_predictive_trace:
+                    self.regions[r].predict(M[r])
                 self.regions[r].skip()
                 continue
             sensor_or_zero = (

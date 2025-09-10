@@ -17,6 +17,8 @@ class CortexConfig:
     enable_adaptive_filter_dynamics: bool = False
     enable_precision_routed_messages: bool = False
     enable_radial_tangential_updates: bool = False
+    afd_noise_mode: str = "scalar"
+    use_predictive_trace: bool = True
     enable_afa_attention: bool = False
     enable_ff_energy_alignment: bool = False
     router_vectorized: bool = True
