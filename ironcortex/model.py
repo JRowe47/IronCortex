@@ -84,8 +84,12 @@ class CortexReasoner(nn.Module):
             [nn.Linear(self.d, self.V) for _ in range(self.R)]
         )
         self.work = Workspace(self.d, N_slots=8)
-        self.plan = PlannerHead(self.d)
-        self.critic = CriticHead(self.d)
+        if cfg.train_deterministic_inner_loop:
+            self.plan = None
+            self.critic = None
+        else:
+            self.plan = PlannerHead(self.d)
+            self.critic = CriticHead(self.d)
         self.verify = None
         self.verify_state = None
         if cfg.enable_energy_verifier:
@@ -268,6 +272,26 @@ class CortexReasoner(nn.Module):
         H_prev: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[torch.Tensor]]:
         """Always-on latent reasoning loop (plan→critic→gate; branch; verify; halt)."""
+        if self.cfg.train_deterministic_inner_loop:
+            traces: List[torch.Tensor] = []
+            last_logits = torch.zeros(self.V, device=H_prev.device)
+            for k in range(K_inner):
+                u_mean = uncertainty_from_logits(last_logits) if k > 0 else 0.0
+                self.gate.value_bias = 0.0
+                H_cur, reg_mask, logits, _rtd, _ws, _motor = self.forward_inner_step(
+                    tokens,
+                    step_k=k,
+                    focus_map=focus_map,
+                    H_prev=H_prev,
+                    reg_mask_prev=reg_mask_prev,
+                    u_mean=u_mean,
+                    burst_extra_k=0,
+                )
+                traces.append(H_cur.clone())
+                H_prev, reg_mask_prev = H_cur, reg_mask
+                last_logits = logits
+            return H_cur, reg_mask, last_logits, traces
+
         # For simplicity, we keep B_br branches as alternative snapshots of region states.
         branches = [
             (self.work.slots.clone(), reg_mask_prev.clone(), H_prev.clone())
