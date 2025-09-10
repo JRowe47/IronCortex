@@ -31,6 +31,13 @@ class CortexConfig:
     surprise_lambda_schedule: int = 0
     tau_kappa: float = 0.0
     tau_target_prec: float = 1.0
+    # KWTA sparsity controls
+    kwta_k: int = 0  # 0 -> use d//8
+    kwta_k_start: int = 0  # 0 -> same as kwta_k
+    kwta_k_schedule: int = 0
+    kwta_soft_mode: bool = False
+    kwta_soft_temp: float = 1.0
+    disable_kwta_during_gating: bool = False
     # Attention debugging: force exact path or threshold for kernel path
     debug_exact: bool = False
     afa_exact_threshold: int = 64
