@@ -61,6 +61,12 @@ class CortexReasoner(nn.Module):
                     enable_radial_tangential_updates=cfg.enable_radial_tangential_updates,
                     afd_noise_mode=cfg.afd_noise_mode,
                     use_predictive_trace=cfg.use_predictive_trace,
+                    kwta_k=cfg.kwta_k,
+                    kwta_k_start=cfg.kwta_k_start,
+                    kwta_k_schedule=cfg.kwta_k_schedule,
+                    kwta_soft_mode=cfg.kwta_soft_mode,
+                    kwta_soft_temp=cfg.kwta_soft_temp,
+                    disable_kwta=cfg.disable_kwta_during_gating,
                 )
                 for _ in range(self.R)
             ]

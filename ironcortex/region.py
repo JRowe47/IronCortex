@@ -32,6 +32,12 @@ class RWKVRegionCell(nn.Module):
         enable_radial_tangential_updates: bool = False,
         afd_noise_mode: str = "scalar",
         use_predictive_trace: bool = True,
+        kwta_k: int = 0,
+        kwta_k_start: int = 0,
+        kwta_k_schedule: int = 0,
+        kwta_soft_mode: bool = False,
+        kwta_soft_temp: float = 1.0,
+        disable_kwta: bool = False,
     ):
         super().__init__()
         self.d = d
@@ -39,6 +45,13 @@ class RWKVRegionCell(nn.Module):
         self.enable_radial_tangential_updates = enable_radial_tangential_updates
         self.afd_noise_mode = afd_noise_mode
         self.use_predictive_trace = use_predictive_trace
+        self.kwta_k = kwta_k if kwta_k > 0 else max(1, d // 8)
+        self.kwta_k_start = kwta_k_start if kwta_k_start > 0 else self.kwta_k
+        self.kwta_k_schedule = kwta_k_schedule
+        self.kwta_soft_mode = kwta_soft_mode
+        self.kwta_soft_temp = kwta_soft_temp
+        self.disable_kwta = disable_kwta
+        self.global_step = 0
         self.norm = RMSNorm(d)
         self.r_lin = nn.Linear(d, d, bias=False)
         self.k_lin = nn.Linear(d, d, bias=False)
@@ -221,5 +234,15 @@ class RWKVRegionCell(nn.Module):
             h = x + self.radius * h_dir
         else:
             h = x + self.o_lin(y)
-        h = KWTA(h, k=max(1, self.d // 8))
+        if not self.disable_kwta:
+            if self.kwta_k_schedule > 0:
+                warm = min(1.0, self.global_step / self.kwta_k_schedule)
+            else:
+                warm = 1.0
+            k = int(round(self.kwta_k_start + (self.kwta_k - self.kwta_k_start) * warm))
+            if self.kwta_soft_mode and warm < 1.0:
+                temp = self.kwta_soft_temp * (1.0 - warm) + 1.0 * warm
+                h = KWTA(h, k=max(1, k), soft=True, temp=temp)
+            else:
+                h = KWTA(h, k=max(1, k))
         return h

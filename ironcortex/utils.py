@@ -35,11 +35,14 @@ class RMSNorm(nn.Module):
         return self.weight * (x / s)
 
 
-def KWTA(x: torch.Tensor, k: int) -> torch.Tensor:
+def KWTA(
+    x: torch.Tensor, k: int, *, soft: bool = False, temp: float = 1.0
+) -> torch.Tensor:
     """k-Winners-Take-All along the last dimension.
 
-    Keeps the top-k (by |value|) units and zeros the rest. Gradient flows
-    through the surviving units only. Stable and simple sparsity primitive.
+    Keeps the top-k (by |value|) units and zeros the rest. When ``soft`` is
+    True, a sigmoid mask with temperature ``temp`` is used instead of a hard
+    cutoff during warmup to preserve gradients.
     """
     d = x.shape[-1]
     if k <= 0:
@@ -48,6 +51,9 @@ def KWTA(x: torch.Tensor, k: int) -> torch.Tensor:
     absx = x.abs()
     # threshold at the kth largest absolute value (ties keep extra units)
     thresh = torch.topk(absx, k, dim=-1).values[..., -1:].expand_as(absx)
+    if soft:
+        gate = torch.sigmoid((absx - thresh) / temp)
+        return x * gate
     mask = absx >= thresh
     return x * mask
 

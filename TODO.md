@@ -193,12 +193,12 @@ Objective: Simplify training path; reduce branching overhead.
 Objective: Reduce redundancy between region gating and KWTA.
 
 ### Tasks
-- KWTA schedule & soft mode
+- [x] KWTA schedule & soft mode
   - Add kwta_k_schedule: start with larger k (less sparse), anneal to target k.
   - kwta_soft_mode=True uses a soft-threshold approximation during warmup (e.g., top‑k mask replaced by sigmoid gate with temperature anneal).
-- Ablate dual sparsity
+- [x] Ablate dual sparsity
   - Experiment flag CFG.disable_kwta_during_gating to rely on gating only; or reduce region gating aggressiveness when KWTA is strict.
-- Vectorized KWTA
+- [x] Vectorized KWTA
   - Implement row‑wise top‑k on [R,d] in one call instead of loop per region.
 
 ### Acceptance

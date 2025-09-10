@@ -54,6 +54,8 @@ def train_step(
 
     step = getattr(model, "_train_step", 0) + 1
     model._train_step = step
+    for reg in model.regions:
+        reg.global_step = step
     if model.cfg.enable_ff_energy_alignment:
         if model.cfg.surprise_lambda_schedule > 0:
             warm = min(1.0, step / model.cfg.surprise_lambda_schedule)
