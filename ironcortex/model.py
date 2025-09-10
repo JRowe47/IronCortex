@@ -1,5 +1,6 @@
 from typing import Dict, List, Tuple
 
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -124,6 +125,13 @@ class CortexReasoner(nn.Module):
         # Per-region FF threshold τ
         self.reg_ff = nn.ModuleList([RegionFFState() for _ in range(self.R)])
         self.apply(init_weights)
+        self._profile_times = {
+            "attention": 0.0,
+            "routing": 0.0,
+            "region": 0.0,
+            "total": 0.0,
+        }
+        self._profile_mem = {"attention": 0, "routing": 0, "region": 0}
 
     def detach_state(self) -> None:
         """Detach stateful tensors to avoid cross-step autograd graphs."""
@@ -167,6 +175,26 @@ class CortexReasoner(nn.Module):
             metrics["afa"] = afa_telem
         return metrics
 
+    def report_profile(self) -> None:
+        total = self._profile_times.get("total", 0.0)
+        if total <= 0:
+            return
+        a = self._profile_times["attention"] / total * 100.0
+        r = self._profile_times["routing"] / total * 100.0
+        u = self._profile_times["region"] / total * 100.0
+        am = self._profile_mem["attention"] / 1e6
+        rm = self._profile_mem["routing"] / 1e6
+        um = self._profile_mem["region"] / 1e6
+        msg = (
+            f"profile time%%: attn={a:.1f} rout={r:.1f} reg={u:.1f}; "
+            f"memMB: attn={am:.1f} rout={rm:.1f} reg={um:.1f}"
+        )
+        print(msg)
+        for k in self._profile_times:
+            self._profile_times[k] = 0.0
+        for k in self._profile_mem:
+            self._profile_mem[k] = 0
+
     def region_input(
         self, r: int, x_sensor: torch.Tensor, msg: torch.Tensor
     ) -> torch.Tensor:
@@ -189,6 +217,16 @@ class CortexReasoner(nn.Module):
         device = H_prev.device
         T = tokens.shape[0]
 
+        def _mem():
+            return (
+                torch.cuda.max_memory_allocated(device)
+                if torch.cuda.is_available()
+                else 0
+            )
+
+        if self.cfg.profile:
+            total_start = time.perf_counter()
+
         # --- 0) Build a sensor vector via local Iron mixer (update only focus) ---
         tok_emb = self.embed(tokens).unsqueeze(0)  # [1,T,d]
         pos = torch.stack(
@@ -199,11 +237,17 @@ class CortexReasoner(nn.Module):
             dim=-1,
         ).unsqueeze(0)
         focus_b = focus_map.unsqueeze(0)
+        if self.cfg.profile:
+            mem0 = _mem()
+            t0 = time.perf_counter()
         sensor_vec = self.local_mix(
             tok_emb, pos, focus_b, ws_slots=None, use_dropout=self.cfg.ff_dropout
         )[
             0
         ]  # [d]
+        if self.cfg.profile:
+            self._profile_times["attention"] += time.perf_counter() - t0
+            self._profile_mem["attention"] += max(0, _mem() - mem0)
 
         # --- 1) Gate selection ---
         H_hint = H_prev
@@ -216,9 +260,18 @@ class CortexReasoner(nn.Module):
         )
 
         # --- 2) Router messages from previously active regions ---
+        if self.cfg.profile:
+            mem0 = _mem()
+            t0 = time.perf_counter()
         M = self.router.messages(H_prev, reg_mask_prev, self.reg_coords)  # [R,d]
+        if self.cfg.profile:
+            self._profile_times["routing"] += time.perf_counter() - t0
+            self._profile_mem["routing"] += max(0, _mem() - mem0)
 
         # --- 3) Region updates ---
+        if self.cfg.profile:
+            mem0 = _mem()
+            t0 = time.perf_counter()
         H_cur = torch.zeros_like(H_prev)
         for r in range(self.R):
             if not bool(reg_mask[r]):
@@ -235,6 +288,10 @@ class CortexReasoner(nn.Module):
             x_r = self.region_input(r, sensor_or_zero, M[r])
             step_pos = float(step_k) / float(max(1, self.cfg.K_inner - 1))
             H_cur[r] = self.regions[r].step(x_r, step_pos_scalar=step_pos)
+        if self.cfg.profile:
+            self._profile_times["region"] += time.perf_counter() - t0
+            self._profile_mem["region"] += max(0, _mem() - mem0)
+            self._profile_times["total"] += time.perf_counter() - total_start
 
         # --- 4) Heads on motor & workspace ---
         motor_state = H_cur[self.io_idxs["motor"]]

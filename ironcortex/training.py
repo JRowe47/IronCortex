@@ -233,6 +233,13 @@ def train_step(
 
     optimizer.step()
 
+    if (
+        model.cfg.profile
+        and model.cfg.profile_every_n_steps > 0
+        and step % model.cfg.profile_every_n_steps == 0
+    ):
+        model.report_profile()
+
     return {
         "ff": float(ff_loss.detach().item()),
         "rtd": float(rtd_loss.detach().item()),
