@@ -213,13 +213,13 @@ Objective: Reduce redundancy between region gating and KWTA.
 Objective: Make performance visible; ensure robustness.
 
 ### Tasks
-- Profiling
-  - Add timers (torch.cuda.Event / time.perf_counter) around: routing, region update, attention.
-  - Report % time per component every N steps when CFG.profile=True.
-- Memory checks
-  - Log torch.cuda.max_memory_allocated() deltas per block under CFG.profile=True.
-- Unit tests
-  - Add tests for: vectorized router correctness, linear‑time AFA parity, dt>1 fast‑forward, robust weighting downweights noise, RT update unit norm.
+- [x] Profiling
+  - [x] Add timers (torch.cuda.Event / time.perf_counter) around: routing, region update, attention.
+  - [x] Report % time per component every N steps when CFG.profile=True.
+- [x] Memory checks
+  - [x] Log torch.cuda.max_memory_allocated() deltas per block under CFG.profile=True.
+- [x] Unit tests
+  - [x] Add tests for: vectorized router correctness, linear‑time AFA parity, dt>1 fast‑forward, robust weighting downweights noise, RT update unit norm.
 
 ### Acceptance
 - CI green; profiling report shows expected reductions post‑refactors.

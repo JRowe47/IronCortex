@@ -27,6 +27,8 @@ class CortexConfig:
     enable_energy_verifier: bool = True
     enable_forward_forward: bool = True
     debug_metrics_every_n_steps: int = 0
+    profile: bool = False
+    profile_every_n_steps: int = 0
     surprise_lambda: float = 0.0
     surprise_lambda_schedule: int = 0
     tau_kappa: float = 0.0
