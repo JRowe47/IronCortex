@@ -9,6 +9,7 @@ class CortexConfig:
     sdr_k: int = 16  # active bits in sparse token encoding
     K_inner: int = 8
     B_br: int = 2
+    train_deterministic_inner_loop: bool = False
     k_active: int = 8
     max_T: int = 8192
     init_decay: float = 0.25

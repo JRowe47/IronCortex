@@ -175,10 +175,10 @@ Objective: Stabilize and make energy signals more informative.
 Objective: Simplify training path; reduce branching overhead.
 
 ### Tasks
-- Bypass branching
+- [x] Bypass branching
   - RG: reasoning_loop, B_br, should_halt
   - If CFG.train_deterministic_inner_loop: force B_br=1, skip should_halt, run fixed K_inner.
-- Disable planner/critic (optional)
+- [x] Disable planner/critic (optional)
   - Gate planner/critic with same flag to reduce compute during LM training.
 
 ### Acceptance

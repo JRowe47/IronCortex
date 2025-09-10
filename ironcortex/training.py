@@ -176,17 +176,20 @@ def train_step(
     denoise_loss = denoise_loss / max(1, B)
 
     # -------- Critic regression --------
-    realized_delta_g = (
-        H_pos.pow(2).mean(dim=-1).mean(dim=-1) - H_neg.pow(2).mean(dim=-1).mean(dim=-1)
-    ).detach()
-    ws_state_neg = torch.zeros(B, model.d, device=device)
-    for b in range(B):
-        active = reg_mask_n[b].nonzero(as_tuple=False).squeeze(-1)
-        if active.numel() > 0:
-            ws_state_neg[b] = H_neg[b, active].mean(dim=0)
-    p, g = model.plan(ws_state_neg, motor_neg)
-    v_hat = model.critic(ws_state_neg, g)
-    critic_loss = F.mse_loss(v_hat, realized_delta_g)
+    critic_loss = torch.tensor(0.0, device=device)
+    if not model.cfg.train_deterministic_inner_loop:
+        realized_delta_g = (
+            H_pos.pow(2).mean(dim=-1).mean(dim=-1)
+            - H_neg.pow(2).mean(dim=-1).mean(dim=-1)
+        ).detach()
+        ws_state_neg = torch.zeros(B, model.d, device=device)
+        for b in range(B):
+            active = reg_mask_n[b].nonzero(as_tuple=False).squeeze(-1)
+            if active.numel() > 0:
+                ws_state_neg[b] = H_neg[b, active].mean(dim=0)
+        p, g = model.plan(ws_state_neg, motor_neg)
+        v_hat = model.critic(ws_state_neg, g)
+        critic_loss = F.mse_loss(v_hat, realized_delta_g)
 
     # -------- Verifier energy FF loss --------
     if model.verify is not None and model.cfg.enable_energy_verifier:
