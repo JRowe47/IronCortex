@@ -59,7 +59,8 @@ class RWKVRegionCell(nn.Module):
         self.register_buffer("surprise_ema", torch.tensor(0.0), persistent=False)
         self.surprise_beta = 0.99
         # Radial–tangential buffers
-        self.radius_beta = 0.9
+        # Radial update uses a single-stage Kalman-like update with optional small momentum
+        self.radius_momentum = 0.2
         self.register_buffer("radius", torch.zeros(1), persistent=False)
         self.register_buffer("radius_var", torch.zeros(1), persistent=False)
         self.radius_process_noise_param = nn.Parameter(torch.tensor(-4.0))
@@ -204,6 +205,9 @@ class RWKVRegionCell(nn.Module):
         if self.enable_radial_tangential_updates:
             norm = y.norm(2, dim=-1, keepdim=True).clamp_min(EPS_DIV)
             dir = y / norm
+            if __debug__:
+                dir_norm = dir.norm().detach()
+                assert abs(dir_norm.item() - 1.0) < 1e-3
             self.last_dir = dir.detach()
             self.last_norm = norm.detach()
             h_dir = self.o_lin(dir)
@@ -212,9 +216,8 @@ class RWKVRegionCell(nn.Module):
             gain = prior_var / (prior_var + self.radius_obs_noise() + EPS_DIV)
             radius_upd = self.radius + gain * resid
             self.radius_var = (1 - gain) * prior_var
-            self.radius = (
-                self.radius_beta * self.radius + (1 - self.radius_beta) * radius_upd
-            )
+            mu = self.radius_momentum
+            self.radius = (1 - mu) * self.radius + mu * radius_upd
             h = x + self.radius * h_dir
         else:
             h = x + self.o_lin(y)
