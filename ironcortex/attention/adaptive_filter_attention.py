@@ -40,12 +40,19 @@ class AdaptiveFilterAttention(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
         self.register_buffer("last_attn_energy", torch.tensor(0.0), persistent=False)
         self.register_buffer("last_kernel_norm", torch.tensor(0.0), persistent=False)
+        # Cache for time kernels keyed by (T, alpha, dt)
+        self._kernel_cache: dict[tuple[int, float, float], torch.Tensor] = {}
 
     def build_time_kernels(self, T: int) -> torch.Tensor:
-        """Return a kernel ``k[t] = exp(-alpha * t * dt)`` for ``t`` in ``[0, T)``."""
-        device = self.alpha.device
-        tau = torch.arange(T, device=device, dtype=torch.float32)
-        return torch.exp(-self.alpha * tau * self.dt)
+        """Return a cached decay kernel ``k[t] = exp(-alpha * t * dt)``."""
+        key = (T, float(self.alpha.item()), float(self.dt))
+        kernel = self._kernel_cache.get(key)
+        if kernel is None:
+            device = self.alpha.device
+            tau = torch.arange(T, device=device, dtype=torch.float32)
+            kernel = torch.exp(-self.alpha * tau * self.dt)
+            self._kernel_cache[key] = kernel
+        return kernel
 
     def pairwise_precision(self, lags: torch.Tensor) -> torch.Tensor:
         """Simple exponential precision falloff with distance."""
@@ -70,10 +77,10 @@ class AdaptiveFilterAttention(nn.Module):
 
         # apply temporal decay based on |i-j|
         kernels = self.build_time_kernels(T)  # [T]
-        self.last_kernel_norm = kernels.norm().detach()
         idx = torch.arange(T, device=x.device)
         lag = (idx.view(1, 1, T, 1) - idx.view(1, 1, 1, T)).abs()
-        decay = kernels[lag]
+        decay = kernels[lag] * self.pairwise_precision(lag)
+        self.last_kernel_norm = decay.norm().detach()
         scores = scores * decay
 
         if mask is not None:
