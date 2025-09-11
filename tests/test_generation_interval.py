@@ -1,5 +1,6 @@
 import random
 
+import sitecustomize  # ensures repository root is on sys.path
 import torch
 
 import train_tiny_shakespeare as tts
