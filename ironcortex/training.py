@@ -1,6 +1,6 @@
 import random
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, List
 
 import torch
 import torch.nn.functional as F
@@ -67,11 +67,11 @@ def train_step(
     model._lambda_s = lam_s
 
     # Prepare negative/corrupted streams for the whole batch.
-    neg_tokens = []
-    focus_maps = []
-    denoise_targets = []
-    denoise_masks = []
-    is_real_flags = []
+    neg_tokens: List[torch.Tensor] = []
+    focus_maps: List[torch.Tensor] = []
+    denoise_targets: List[torch.Tensor] = []
+    denoise_masks: List[torch.Tensor] = []
+    is_real_flags: List[bool] = []
     for b in range(B):
         tokens = clean_tokens[b]
         mode = random.choices(["RTD", "SPAN", "BLOCK"], weights=[0.5, 0.3, 0.2])[0]

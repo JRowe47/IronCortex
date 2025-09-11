@@ -61,11 +61,20 @@ IronCortex is a GAN‑MoE, energy‑based, diffusion‑augmented RWKV‑Transfor
 - [Numenta HTM integration ideas](docs/numenta_htm_integration.md)
 - [Project to-do list](TODO.md)
 
+## Installation
+
+Install the core dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Getting Started
 
 1. Install dependencies and run the smoke test:
 
    ```bash
+   pip install -r requirements.txt
    pytest
    ```
 

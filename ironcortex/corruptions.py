@@ -1,10 +1,17 @@
 import torch
+from typing import Tuple
 
 # 7) Corruptions for FF training (RTD / SPAN / BLOCK)
 # ==========================================================
 
 
-def corrupt(tokens: torch.Tensor, V: int, mode: str):
+def corrupt(tokens: torch.Tensor, V: int, mode: str) -> Tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
     """Return negative stream inputs and metadata.
 
     GPU-friendly implementation without host-side loops.
