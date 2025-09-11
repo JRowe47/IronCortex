@@ -10,7 +10,7 @@ from typing import Sequence
 import warnings
 
 import numpy as np
-from .visualization import _is_interactive_backend
+from ironcortex.visualization import _is_interactive_backend
 
 # Matplotlib is an optional dependency for hex state visualization. Import it
 # lazily so the rest of the package can be used in environments without the
@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - allows import without matplotlib
     plt = None
     Poly3DCollection = None
 
-from .wiring import hex_axial_coords
+from ironcortex.wiring import hex_axial_coords
 
 
 @dataclass
