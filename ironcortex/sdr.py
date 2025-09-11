@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch import Tensor
 
 
 class SparseTokenEncoder(nn.Module):
@@ -24,5 +25,5 @@ class SparseTokenEncoder(nn.Module):
             codes[i, idx] = 1.0
         self.register_buffer("codes", codes)
 
-    def forward(self, tokens: torch.Tensor) -> torch.Tensor:
+    def forward(self, tokens: Tensor) -> Tensor:
         return self.codes[tokens]
