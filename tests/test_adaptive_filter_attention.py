@@ -1,8 +1,17 @@
 import math
+import sys
+from pathlib import Path
 
 import torch
 
-from ironcortex.attention.adaptive_filter_attention import AdaptiveFilterAttention
+# Ensure project root is on the import path when tests are executed directly.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from ironcortex.attention import adaptive_filter_attention  # noqa: E402
+
+AdaptiveFilterAttention = adaptive_filter_attention.AdaptiveFilterAttention
 
 
 def test_trivial_reduces_to_dot_product():
