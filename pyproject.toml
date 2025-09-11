@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ironcortex"
+version = "0.0.1"
+description = "Iron Cortex reasoning-native neural architecture research project"
+readme = "readme.md"
+requires-python = ">=3.8"
+authors = [{name = "Iron Cortex contributors"}]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ironcortex*"]
