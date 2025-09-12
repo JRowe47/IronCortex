@@ -53,7 +53,7 @@ def test_router_fourier_bias_device():
     neighbors = hex_neighbors(cfg.R)
     reg_coords = hex_axial_coords(cfg.R)
     io_idxs = {"sensor": 0, "motor": cfg.R - 1}
-    device = torch.device("cuda")
+    device = torch.device("cuda:0")
     model = CortexReasoner(neighbors, reg_coords, io_idxs, cfg).to(device)
     router = model.router
     assert router.W_reg.device == device

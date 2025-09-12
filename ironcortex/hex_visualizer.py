@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Sequence
-import warnings
+import logging
 
 import numpy as np
 from ironcortex.visualization import _is_interactive_backend
@@ -58,10 +58,8 @@ class HexStateVisualizer:
             except Exception:
                 self.interactive = False
         else:  # pragma: no cover - used for user feedback in headless setups
-            warnings.warn(
-                "Matplotlib is using a non-interactive backend; hex state"
-                " plots will not be displayed.",
-                RuntimeWarning,
+            logging.getLogger(__name__).warning(
+                "Matplotlib is using a non-interactive backend; hex state plots will not be displayed."
             )
         self._collections: list[Poly3DCollection] = []
 
