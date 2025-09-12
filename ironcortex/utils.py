@@ -52,7 +52,9 @@ def KWTA(
     # threshold at the kth largest absolute value (ties keep extra units)
     thresh = torch.topk(absx, k, dim=-1).values[..., -1:].expand_as(absx)
     if soft:
+        mask = absx >= thresh
         gate = torch.sigmoid((absx - thresh) / temp)
+        gate = mask.to(x.dtype) + (~mask).to(x.dtype) * gate
         return x * gate
     mask = absx >= thresh
     return x * mask

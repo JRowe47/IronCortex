@@ -63,6 +63,7 @@ class HexStateVisualizer:
                 " plots will not be displayed.",
                 RuntimeWarning,
             )
+        self._collections: list[Poly3DCollection] = []
 
     def _axial_to_cart(self, q: float, r: float) -> tuple[float, float]:
         x = self.size * np.sqrt(3) * (q + r / 2)
@@ -85,15 +86,14 @@ class HexStateVisualizer:
         mapped from black (0) to matrix green (1).
         """
 
-        try:
-            self.ax.collections.clear()
-        except Exception:
-            # Some matplotlib backends expose "collections" as an ArtistList
-            # that lacks a ``clear`` method and cannot be reassigned (read-only
-            # property). In those cases remove items in-place to avoid
-            # triggering ``AttributeError: property 'collections' has no
-            # setter``.
-            del self.ax.collections[:]
+        if not hasattr(self, "_collections"):
+            self._collections = []
+        for coll in self._collections:
+            try:
+                coll.remove()
+            except Exception:
+                pass
+        self._collections.clear()
         for (q, r), s in zip(self.coords, states):
             x, y = self._axial_to_cart(q, r)
             outer = Poly3DCollection(
@@ -102,14 +102,19 @@ class HexStateVisualizer:
                 edgecolors="white",
             )
             self.ax.add_collection3d(outer)
+            self._collections.append(outer)
             s_clamped = float(min(1.0, max(0.0, s)))
             color = (0.0, s_clamped, 0.0)
             inner = Poly3DCollection(
                 [self._hex_vertices(x, y, 0.5)], facecolors=[color], edgecolors="none"
             )
             self.ax.add_collection3d(inner)
-        self.fig.canvas.draw()
-        if self.interactive:
-            if hasattr(self.fig.canvas, "flush_events"):
-                self.fig.canvas.flush_events()
-            plt.pause(0.001)
+            self._collections.append(inner)
+        try:
+            self.fig.canvas.draw()
+            if self.interactive:
+                if hasattr(self.fig.canvas, "flush_events"):
+                    self.fig.canvas.flush_events()
+                plt.pause(0.001)
+        except Exception:
+            pass

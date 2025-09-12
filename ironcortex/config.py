@@ -43,3 +43,7 @@ class CortexConfig:
     # Attention debugging: force exact path or threshold for kernel path
     debug_exact: bool = False
     afa_exact_threshold: int = 64
+
+    def __post_init__(self) -> None:
+        if self.sdr_k <= 0 or self.sdr_k > self.d:
+            self.sdr_k = max(1, self.d // 8)
