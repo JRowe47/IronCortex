@@ -45,7 +45,7 @@ def load_checkpoint(
     Returns the training step stored in the checkpoint.
     """
 
-    ckpt = torch.load(path, map_location=map_location)
+    ckpt = torch.load(path, map_location=map_location, weights_only=True)
     if model is not None:
         model.load_state_dict(ckpt["model"])
     if optimizer is not None and ckpt.get("optimizer") is not None:

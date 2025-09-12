@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, Mapping
 
 import matplotlib
-import warnings
+import logging
 
 
 def _ensure_gui_backend() -> None:
@@ -90,10 +90,8 @@ class TrainVisualizer:
             except Exception:
                 self.interactive = False
         else:  # pragma: no cover - used for user feedback in headless setups
-            warnings.warn(
-                "Matplotlib is using a non-interactive backend; training curves"
-                " will not be displayed.",
-                RuntimeWarning,
+            logging.getLogger(__name__).warning(
+                "Matplotlib is using a non-interactive backend; training curves will not be displayed."
             )
 
     def update(
