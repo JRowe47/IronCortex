@@ -161,9 +161,12 @@ def train_step(
     rtd_logits = model.rtdd(motor_neg)
     rtd_target = (~torch.tensor(is_real_flags, device=device)).long()
     rtd_loss = F.cross_entropy(rtd_logits, rtd_target)
+    rtd_acc = (rtd_logits.argmax(dim=-1) == rtd_target).float().mean()
 
     # -------- Denoising loss (mask-predict) --------
     denoise_loss = torch.tensor(0.0, device=device)
+    denoise_correct = 0
+    denoise_total = 0
     for b in range(B):
         logits_b, aux_b = model.lm_head(motor_neg[b])
         if bool(denoise_masks[b].any()):
@@ -175,7 +178,11 @@ def train_step(
                 + ce
                 + aux_b.get("facet_balance", torch.tensor(0.0, device=device)) * λ.facet
             )
+            pred_id = logits_b.argmax(dim=-1)
+            denoise_correct += int(pred_id == target_id.item())
+            denoise_total += 1
     denoise_loss = denoise_loss / max(1, B)
+    denoise_acc = denoise_correct / max(1, denoise_total)
 
     # -------- Critic regression --------
     critic_loss = torch.tensor(0.0, device=device)
@@ -224,11 +231,18 @@ def train_step(
     )
 
     total.backward()
+    grad_norm = 0.0
+    with torch.no_grad():
+        for p in model.parameters():
+            if p.grad is not None:
+                grad_norm += float(p.grad.detach().pow(2).sum().item())
+    grad_norm = float(grad_norm**0.5)
     with torch.no_grad():
         for r, s, gain, post, pre in hebbian_updates:
             W = model.router.W_edge[f"{s}->{r}"].weight
             W.add_(1e-3 * gain * torch.outer(post, pre))
 
+    active_frac = float(reg_mask_n.float().mean().item())
     model.gate.update_homeo(reg_mask_n.any(dim=0))
 
     optimizer.step()
@@ -248,6 +262,11 @@ def train_step(
         "verify": float(verifier_loss.detach().item()),
         "E_pos": float(E_pos.detach().mean().item()),
         "E_neg": float(E_neg.detach().mean().item()),
+        "E_gap": float((E_pos.detach().mean() - E_neg.detach().mean()).item()),
+        "rtd_acc": float(rtd_acc.detach().item()),
+        "denoise_acc": float(denoise_acc),
+        "grad_norm": grad_norm,
+        "active_frac": active_frac,
         "lambda_s": float(lam_s),
         "ce_last": float(ce_loss.detach().item()),
         "total": float(total.detach().item()),

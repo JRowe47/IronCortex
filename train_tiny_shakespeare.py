@@ -85,7 +85,10 @@ def train(
 ) -> None:
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     lamb = LossWeights()
-    header = "step,ff,rtd,denoise,critic,verify,E_pos,E_neg,xent,ppl,total,gain_mean,tau_mean"
+    header = (
+        "step,ff,rtd,rtd_acc,denoise,denoise_acc,critic,verify,E_pos,E_neg,E_gap,"
+        "xent,ppl,total,gain_mean,gain_var,tau_mean,grad_norm,active_frac,router_H,attn_H"
+    )
     print(header)
     step = 0
     if hparams.ckpt_path and Path(hparams.ckpt_path).exists():
@@ -127,21 +130,33 @@ def train(
                 )
                 print(dbg)
             gain_mean = float(model.gate.gain_ema.mean().item())
+            gain_var = float(model.gate.gain_ema.var().item())
             tau_mean = float(torch.stack([r.tau for r in model.reg_ff]).mean().item())
             if step % hparams.log_interval == 0:
                 eval_metrics = evaluate_perplexity(model, batch, device)
+                telem = model.telemetry()
                 line = (
-                    f"{step},{metrics['ff']:.4f},{metrics['rtd']:.4f},{metrics['denoise']:.4f},"
-                    f"{metrics['critic']:.4f},{metrics['verify']:.4f},{metrics['E_pos']:.4f},"
-                    f"{metrics['E_neg']:.4f},{eval_metrics['cross_entropy']:.4f},"
+                    f"{step},{metrics['ff']:.4f},{metrics['rtd']:.4f},{metrics['rtd_acc']:.4f},"
+                    f"{metrics['denoise']:.4f},{metrics['denoise_acc']:.4f},{metrics['critic']:.4f},"
+                    f"{metrics['verify']:.4f},{metrics['E_pos']:.4f},{metrics['E_neg']:.4f},"
+                    f"{metrics['E_gap']:.4f},{eval_metrics['cross_entropy']:.4f},"
                     f"{eval_metrics['perplexity']:.2f},{metrics['total']:.4f},"
-                    f"{gain_mean:.4f},{tau_mean:.4f}"
+                    f"{gain_mean:.4f},{gain_var:.4f},{tau_mean:.4f},"
+                    f"{metrics['grad_norm']:.4f},{metrics['active_frac']:.4f},"
+                    f"{telem['router_weight_entropy']:.4f},{telem['attn_entropy_mean']:.4f}"
                 )
                 print(line)
                 if vis is not None:
                     vis.update(
                         step,
-                        {**metrics, "gain_mean": gain_mean, "tau_mean": tau_mean},
+                        {
+                            **metrics,
+                            "gain_mean": gain_mean,
+                            "gain_var": gain_var,
+                            "tau_mean": tau_mean,
+                            "router_H": telem["router_weight_entropy"],
+                            "attn_H": telem["attn_entropy_mean"],
+                        },
                         eval_metrics,
                     )
                 if hex_vis is not None:
