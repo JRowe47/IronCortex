@@ -11,6 +11,11 @@ requires-python = ">=3.8"
 authors = [{name = "Iron Cortex contributors"}]
 dependencies = []
 
+[tool.setuptools]
+# Include top-level training scripts as importable modules so tests can
+# `import train_tiny_shakespeare` after installation.
+py-modules = ["train_tiny_shakespeare", "train_tiny_shakespeare_10m"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["ironcortex*"]
